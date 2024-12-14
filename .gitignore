@@ -4,3 +4,9 @@
 # Roblox Studio lock files
 /*.rbxlx.lock
 /*.rbxl.lock
+
+# Supporting configs
+sourcemap.json
+
+# Built model
+Freshynoid.rbxm
