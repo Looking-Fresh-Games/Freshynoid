@@ -258,6 +258,9 @@ function Freshynoid:_makeCharacterRefs()
 
     if self.Manager then
         self.Manager.BaseMoveSpeed = self.Configuration.WalkSpeed
+
+        -- Don't have them all awkwardly spin north on spawn
+        self.Manager.FacingDirection = self.RootPart.CFrame.LookVector
     end
 end
 
