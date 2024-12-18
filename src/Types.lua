@@ -22,16 +22,13 @@ export type FreshynoidConfiguration = {
     AgentParameters: Pathfinder.AgentParameters,
 
     -- Defaults to StarterPlayer.CharacterWalkSpeed.
-    WalkSpeed: number?,
-
-    StateUnions: {string},
+    WalkSpeed: number?
 }
 
 -- Default config used for fields not passed
 local defaultConfiguration: FreshynoidConfiguration = {
     AgentParameters = {},
     WalkSpeed = StarterPlayer.CharacterWalkSpeed,
-    StateUnions = {},
 }
 
 

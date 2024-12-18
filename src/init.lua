@@ -36,7 +36,7 @@ function Freshynoid.new(character: Model, configuration: TypeDefs.FreshynoidConf
     self.AnimationTracks = {}
 
     -- State
-    self.FreshyState = "Paused" :: TypeDefs.DefaultStates? --| typeof(configuration.StateUnions[number])
+    self.FreshyState = "Paused"
     self.PlayingTrack = nil :: AnimationTrack?
 
     -- Setup
