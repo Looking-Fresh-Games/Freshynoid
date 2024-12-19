@@ -28,6 +28,7 @@ function Freshynoid.new(character: Model, configuration: TypeDefs.FreshynoidConf
 
     -- Events
     self.StateChanged = Signal.new()
+    self.MoveToComplete = Signal.new()
 
     -- Refs
     self.Character = character
@@ -113,8 +114,8 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean?)
         return
     end
 
-    if self.FreshyState ~= "Running" then
-        return
+    if self.FreshyState ~= "Running" and self.FreshyState ~= "Paused" then
+        self:SetState("Running")
     end
 
     -- Just turn that direction and start moving
@@ -165,7 +166,8 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean?)
             nextWayPos, _nextAction, _nextLabel = self.Pathfinder:GetNextWaypoint()
             if not nextWayPos then
                 self:_stopStepping()
-
+                self.MoveToComplete:Fire()
+                
                 return
             end
         end
