@@ -109,9 +109,13 @@ function Freshynoid:GetState()
 end
 
 -- Given a point in world space, walk to it, with optional pathfinding
-function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean?)
+function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
     if not self.Manager then
         return
+    end
+
+    if self._stepped and self._stepped.Connected then
+        self:_stopStepping()
     end
 
     if self.FreshyState ~= "Running" and self.FreshyState ~= "Paused" then
@@ -119,9 +123,27 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean?)
     end
 
     -- Just turn that direction and start moving
-    if not shouldPathfind then
+    if shouldPathfind == false then
         local direction = point - self.RootPart.Position
-        self:WalkInDirection(direction)
+
+        self._stepped = RunService.Heartbeat:Connect(function()
+            -- Check to make sure we're still running
+            if self.FreshyState ~= "Running" then
+                self:_stopStepping()
+                return
+            end
+
+            local newDirection = point - self.RootPart.Position
+
+            -- In range to advance to the next waypoint
+            if newDirection.Magnitude <= 5 then
+                self:_stopStepping()
+                self.MoveToComplete:Fire()
+            end
+        end)
+
+        self:WalkInDirection(direction, true)
+
         return
     end
 
@@ -218,8 +240,8 @@ function Freshynoid:_stopStepping()
     end
 
     if self.Manager and self.FreshyState == "Running" then
+        self:SetState("Idle")
         self.Manager.MovingDirection = Vector3.zero
-        self.FreshyState = "Idle"
     end
 end
 
