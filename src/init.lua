@@ -6,7 +6,7 @@
 ]]--
 
 -- Constants
-local DEBUG_PATH = true
+local DEBUG_PATH = false
 
 -- Services
 local RunService = game:GetService("RunService")
