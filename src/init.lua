@@ -115,7 +115,7 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
     end
 
     if self._stepped and self._stepped.Connected then
-        self:_stopStepping()
+        self:_stopStepping(false)
     end
 
     if self.FreshyState ~= "Running" and self.FreshyState ~= "Paused" then
@@ -129,7 +129,7 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
         self._stepped = RunService.Heartbeat:Connect(function()
             -- Check to make sure we're still running
             if self.FreshyState ~= "Running" then
-                self:_stopStepping()
+                self:_stopStepping(false)
                 return
             end
 
@@ -137,7 +137,7 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
 
             -- In range to advance to the next waypoint
             if newDirection.Magnitude <= 5 then
-                self:_stopStepping()
+                self:_stopStepping(false)
                 self.MoveToComplete:Fire()
             end
         end)
@@ -176,7 +176,7 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
     self._stepped = RunService.Heartbeat:Connect(function()
         -- Check to make sure we're still running
         if self.FreshyState ~= "Running" then
-            self:_stopStepping()
+            self:_stopStepping(false)
             return
         end
 
@@ -187,7 +187,7 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
             -- Updated hoisted targets
             nextWayPos, _nextAction, _nextLabel = self.Pathfinder:GetNextWaypoint()
             if not nextWayPos then
-                self:_stopStepping()
+                self:_stopStepping(false)
                 self.MoveToComplete:Fire()
                 
                 return
@@ -212,7 +212,7 @@ function Freshynoid:WalkInDirection(direction: Vector3, keepWalking: boolean?)
 
     -- Stop moving first
     if not keepWalking then
-        self:_stopStepping()
+        self:_stopStepping(false)
     end
     
     -- Turn that direction
@@ -225,7 +225,7 @@ end
 -- Cleanup
 function Freshynoid:Destroy()
     -- Stop moving first
-    self:_stopStepping()
+    self:_stopStepping(true)
 
     self.FreshyState = "Dead"
 
@@ -233,13 +233,13 @@ function Freshynoid:Destroy()
 end
 
 -- Disconnects the stepped event
-function Freshynoid:_stopStepping()
+function Freshynoid:_stopStepping(resetState: boolean)
     if self._stepped and self._stepped.Connected then
         self._stepped:Disconnect()
         self._stepped = nil
     end
 
-    if self.Manager and self.FreshyState == "Running" then
+    if resetState and self.Manager and self.FreshyState == "Running" then
         self:SetState("Idle")
         self.Manager.MovingDirection = Vector3.zero
     end
