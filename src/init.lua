@@ -175,7 +175,7 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
     -- Update loop
     self._stepped = RunService.Heartbeat:Connect(function()
         -- Check to make sure we're still running
-        if self.FreshyState ~= "Running" then
+        if self.FreshyState ~= "Running" or nextWayPos == nil then
             self:_stopStepping(false)
             return
         end
