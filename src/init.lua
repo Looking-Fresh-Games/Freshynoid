@@ -7,6 +7,7 @@
 
 -- Constants
 local DEBUG_PATH = false
+local UNSTUCK_TIME = .9
 
 -- Services
 local RunService = game:GetService("RunService")
@@ -35,6 +36,8 @@ function Freshynoid.new(character: Model, configuration: TypeDefs.FreshynoidConf
     self.Configuration = self:_getConfiguration(configuration) :: TypeDefs.FreshynoidConfiguration
     self.Pathfinder = Pathfinder.new({AgentCanJump = false, AgentCanClimb = false})
     self.AnimationTracks = {}
+    self._thread = nil
+    self.UnstuckTimestamp = workspace:GetServerTimeNow() - UNSTUCK_TIME
 
     -- State
     self.FreshyState = "Paused"
@@ -109,14 +112,12 @@ function Freshynoid:GetState()
 end
 
 -- Given a point in world space, walk to it, with optional pathfinding
-function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
+function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)    
     if not self.Manager then
         return
     end
 
-    if self._stepped and self._stepped.Connected then
-        self:_stopStepping(false)
-    end
+    self:_stopStepping(false)
 
     if self.FreshyState ~= "Running" and self.FreshyState ~= "Paused" then
         self:SetState("Running")
@@ -125,7 +126,6 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
     -- Just turn that direction and start moving
     if shouldPathfind == false then
         local direction = point - self.RootPart.Position
-
         self._stepped = RunService.Heartbeat:Connect(function()
             -- Check to make sure we're still running
             if self.FreshyState ~= "Running" then
@@ -147,9 +147,19 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
         return
     end
 
+    if self._thread then
+        task.cancel(self._thread)
+        self._thread = nil
+    end
+
     -- Solve the path
     local makePath = self.Pathfinder:PathToPoint(self.RootPart.Position, point)
     if makePath == false then
+        self:WalkInDirection(self.Manager.MovingDirection * -1, false)
+        
+        self._thread = task.delay(.2, function()
+            self:WalkToPoint(point, true)
+        end)
         return
     end
 
@@ -162,6 +172,11 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
             part.Shape = Enum.PartType.Ball
             part.Color = Color3.new(1, 0, 0)
             part.CFrame = CFrame.new(waypoint.Position)
+
+            local pathModifier = Instance.new("PathfindingModifier")
+            pathModifier.PassThrough = true
+            pathModifier.Parent = part
+
             part.Parent = workspace
         end
     end
@@ -169,18 +184,38 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
     -- Hoisted above the stepped
     local nextWayPos, _nextAction, _nextLabel = self.Pathfinder:GetNextWaypoint()
     if not nextWayPos then
+        self:WalkInDirection(self.Manager.MovingDirection * -1, false)
+
+        self._thread = task.delay(.2, function()
+            self:WalkToPoint(point, true)
+        end)
         return
     end
 
     -- Update loop
     self._stepped = RunService.Heartbeat:Connect(function()
-        -- Check to make sure we're still running
-        if self.FreshyState ~= "Running" or nextWayPos == nil then
-            self:_stopStepping(false)
+        if workspace:GetServerTimeNow() - self.UnstuckTimestamp <= UNSTUCK_TIME then
             return
         end
 
+        -- Check to make sure we're still running
+        if self.FreshyState ~= "Running" or nextWayPos == nil then
+            self:_stopStepping(true)
+            if self._thread then
+                task.cancel(self._thread)
+            end
+            return
+        end
+
+
         local direction = Vector3.new(nextWayPos.X, self.RootPart.Position.Y, nextWayPos.Z) - self.RootPart.Position
+        local velocity = self.RootPart.AssemblyLinearVelocity.Magnitude
+
+        if velocity < 1.1920928955078125e-07 then
+            self.UnstuckTimestamp = workspace:GetServerTimeNow()
+            self:WalkInDirection(-direction, true)
+            return
+        end
 
         -- In range to advance to the next waypoint
         if direction.Magnitude <= self.Pathfinder.AgentParameters.WaypointSpacing * .8 then
@@ -202,6 +237,10 @@ end
 
 -- Given a direction vector, walk the direction it points
 function Freshynoid:WalkInDirection(direction: Vector3, keepWalking: boolean?)
+    if direction.Magnitude > 1 then
+        direction = direction.Unit
+    end
+
     if not self.Manager then
         return
     end
@@ -214,12 +253,14 @@ function Freshynoid:WalkInDirection(direction: Vector3, keepWalking: boolean?)
     if not keepWalking then
         self:_stopStepping(false)
     end
-    
-    -- Turn that direction
-    self.Manager.FacingDirection = direction.Unit
 
     -- Walk that way
-    self.Manager.MovingDirection = direction.Unit
+    self.Manager.MovingDirection = direction
+    
+    -- Turn that direction
+    if direction.Magnitude ~= 0 then
+        self.Manager.FacingDirection = direction
+    end
 end
 
 -- Cleanup
