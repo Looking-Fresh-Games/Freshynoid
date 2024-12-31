@@ -6,7 +6,7 @@
 ]]--
 
 --Constants
-local RETRY_DELAY = 3 -- Seconds between retrying a ComputeAsync()
+local RETRY_DELAY = .075 -- Seconds between retrying a ComputeAsync()
 local RETRY_COUNT = 5 -- How many times to retry solving the same path
 
 -- Types
