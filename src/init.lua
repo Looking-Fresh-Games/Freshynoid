@@ -147,7 +147,7 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
         return
     end
 
-    if self._thread then
+    if self._thread and coroutine.status(self._thread) == "suspended" then
         task.cancel(self._thread)
         self._thread = nil
     end
@@ -201,8 +201,9 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
         -- Check to make sure we're still running
         if self.FreshyState ~= "Running" or nextWayPos == nil then
             self:_stopStepping(true)
-            if self._thread then
+            if self._thread and coroutine.status(self._thread) == "suspended" then
                 task.cancel(self._thread)
+                self._thread = nil
             end
             return
         end
