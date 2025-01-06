@@ -24,7 +24,8 @@ export type FreshynoidConfiguration = {
     -- Defaults to StarterPlayer.CharacterWalkSpeed.
     WalkSpeed: number?,
 
-    RootPartName: string?
+    RootPartName: string?,
+    RootAttachment: Attachment?,
 }
 
 -- Default config used for fields not passed

@@ -111,6 +111,15 @@ function Freshynoid:GetState()
     return self.FreshyState
 end
 
+-- Allows switching between a RootPart or RootAttachment for pathfinding position
+function Freshynoid:GetRootPosition()
+    if self.RootAttachment then
+        return self.RootAttachment.WorldCFrame.Position
+    else
+        return self.RootPart.Position
+    end
+end
+
 -- Given a point in world space, walk to it, with optional pathfinding
 function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)    
     if not self.Manager then
@@ -125,7 +134,7 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
 
     -- Just turn that direction and start moving
     if shouldPathfind == false then
-        local direction = point - self.RootPart.Position
+        local direction = point - self:GetRootPosition()
         self._stepped = RunService.Heartbeat:Connect(function()
             -- Check to make sure we're still running
             if self.FreshyState ~= "Running" then
@@ -133,7 +142,7 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
                 return
             end
 
-            local newDirection = point - self.RootPart.Position
+            local newDirection = point - self:GetRootPosition()
 
             -- In range to advance to the next waypoint
             if newDirection.Magnitude <= 5 then
@@ -153,7 +162,7 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
     end
 
     -- Solve the path
-    local makePath = self.Pathfinder:PathToPoint(self.RootPart.Position, point)
+    local makePath = self.Pathfinder:PathToPoint(self:GetRootPosition(), point)
     if makePath == false then
         self:WalkInDirection(self.Manager.MovingDirection * -1, false)
         
@@ -209,7 +218,7 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
         end
 
 
-        local direction = Vector3.new(nextWayPos.X, self.RootPart.Position.Y, nextWayPos.Z) - self.RootPart.Position
+        local direction = Vector3.new(nextWayPos.X, self:GetRootPosition().Y, nextWayPos.Z) - self:GetRootPosition()
         local velocity = self.RootPart.AssemblyLinearVelocity.Magnitude
 
         if velocity < 1.1920928955078125e-07 then
@@ -231,7 +240,7 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
         end
 
         -- Head that way
-        local newDirection = Vector3.new(nextWayPos.X, self.RootPart.Position.Y, nextWayPos.Z) - self.RootPart.Position
+        local newDirection = Vector3.new(nextWayPos.X, self:GetRootPosition().Y, nextWayPos.Z) - self:GetRootPosition()
         self:WalkInDirection(newDirection, true)
     end)
 end
@@ -316,6 +325,8 @@ function Freshynoid:_makeCharacterRefs()
 
     -- Standard rig root part
     self.RootPart = self.Character:WaitForChild(self.Configuration.RootPartName)
+    self.RootAttachment = self.Configuration.RootAttachment
+    
  
     -- Controller manager stuff
     -- https://create.roblox.com/docs/physics/character-controllers
