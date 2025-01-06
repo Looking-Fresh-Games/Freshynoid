@@ -31,6 +31,7 @@ export type FreshynoidConfiguration = {
 local defaultConfiguration: FreshynoidConfiguration = {
     AgentParameters = {},
     WalkSpeed = StarterPlayer.CharacterWalkSpeed,
+    RootPartName = "HumanoidRootPart"
 }
 
 

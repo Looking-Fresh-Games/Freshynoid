@@ -315,7 +315,7 @@ function Freshynoid:_makeCharacterRefs()
     end
 
     -- Standard rig root part
-    self.RootPart = self.Character:WaitForChild(self.Configuration.RootPartName or "HumanoidRootPart")
+    self.RootPart = self.Character:WaitForChild(self.Configuration.RootPartName)
  
     -- Controller manager stuff
     -- https://create.roblox.com/docs/physics/character-controllers
