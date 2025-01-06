@@ -22,7 +22,9 @@ export type FreshynoidConfiguration = {
     AgentParameters: Pathfinder.AgentParameters,
 
     -- Defaults to StarterPlayer.CharacterWalkSpeed.
-    WalkSpeed: number?
+    WalkSpeed: number?,
+
+    RootPartName: string?
 }
 
 -- Default config used for fields not passed
