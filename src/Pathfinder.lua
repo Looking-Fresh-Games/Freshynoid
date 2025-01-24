@@ -23,27 +23,35 @@ export type AgentParameters = {
 local PathfindingService = game:GetService("PathfindingService")
 local RunService = game:GetService("RunService")
 
+local Dijkstra = require(script.Parent.Dijkstra)
+local NodeGraph = require(script.Parent.Packages.NodeGraph)
+local SmallOctree = require(script.Parent.SmallOctree)
+
 -- Class
 local Pathfinder = {}
 Pathfinder.__index = Pathfinder
 
-function Pathfinder.new(agentParameters: AgentParameters)
+function Pathfinder.new(agentParameters: AgentParameters, backupGraph: NodeGraph.NodeGraph?)
     local self = setmetatable({}, Pathfinder)
 
     -- Refs
     self.AgentParameters = self:_getAgentParams(agentParameters)
     self.Path = PathfindingService:CreatePath(agentParameters)
+    self.BackupGraph = backupGraph
+    self.BackupOctree = SmallOctree.new()
 
     -- State
     self.Waypoints = {} :: {PathWaypoint}
     self.CurrentIndex = 1
     self.LastTarget = Vector3.zero
+    self.UsingFallback = false
 
     return self
 end
 
 function Pathfinder:PathToPoint(startPoint: Vector3, targetPoint: Vector3): boolean
     self.LastTarget = targetPoint
+    self.UsingFallback = false
     
     local attempts = 0
     local status, err
@@ -63,11 +71,27 @@ function Pathfinder:PathToPoint(startPoint: Vector3, targetPoint: Vector3): bool
 
             task.wait(RETRY_DELAY)
         end
-    until (status == true and self.Path.Status == Enum.PathStatus.Success) or attempts > RETRY_COUNT
+    until (status == true and self.Path.Status == Enum.PathStatus.Success) or attempts > RETRY_COUNT or self.BackupGraph ~= nil
     
     if self.Path.Status and self.Path.Status == Enum.PathStatus.Success then
         self.CurrentIndex = 1
         self.Waypoints = self.Path:GetWaypoints()
+
+        return true
+    elseif self.BackupGraph ~= nil then
+        self.UsingFallback = true
+
+        -- Regen the octree
+        self.BackupOctree:ClearNodes()
+        for _, node in self.BackupGraph.Nodes do
+            self.BackupOctree:CreateNode(node.Data.Position, node)
+        end
+
+        -- Get the start and end nodes
+        local fallbackStart = self:_getNearestNodeFromTree(startPoint, 80)
+        local fallbackEnd = self:_getNearestNodeFromTree(targetPoint, 80)
+
+        self.FallbackPoints = Dijkstra(self.BackupGraph, fallbackStart, fallbackEnd)
 
         return true
     elseif RunService:IsStudio() then
@@ -80,20 +104,28 @@ end
 
 
 function Pathfinder:GetNextWaypoint(): (Vector3?, Enum.PathWaypointAction?, string?)
-    if #self.Waypoints == 0 then
+    if #self.Waypoints == 0 or #self.FallbackPoints == 0 then
         return nil
     end
 
     -- Increment the path
     self.CurrentIndex += 1
 
-    if self.CurrentIndex > #self.Waypoints then
-        return nil
+    if self.UsingFallback == true then
+        if self.CurrentIndex > #self.FallbackPoints then
+            return nil
+        end
+        
+        return self.FallbackPoints[self.CurrentIndex].Position
+    else
+        if self.CurrentIndex > #self.Waypoints then
+            return nil
+        end
+        
+        local waypoint = self.Waypoints[self.CurrentIndex] :: PathWaypoint
+        
+        return waypoint.Position, waypoint.Action, waypoint.Label
     end
-
-    local waypoint = self.Waypoints[self.CurrentIndex] :: PathWaypoint
-
-    return waypoint.Position, waypoint.Action, waypoint.Label
 end
 
 function Pathfinder:Destroy()
@@ -141,6 +173,20 @@ function Pathfinder:_getAgentParams(agentParams: AgentParameters)
     end
 
     return agentParams
+end
+
+function Pathfinder:_getNearestNodeFromTree(point, radius)
+    local lowestMag, nearestNode = math.huge, nil
+
+    local foundNodes = self.GraphTree:RadiusSearch(point, radius)
+    for node, mag in foundNodes do
+        if lowestMag > mag then
+            lowestMag = mag
+            nearestNode = node
+        end
+    end
+
+    return nearestNode
 end
 
 return Pathfinder
