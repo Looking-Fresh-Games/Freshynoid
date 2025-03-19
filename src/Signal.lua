@@ -55,8 +55,8 @@ function Signal.new()
 	
 	function self:Fire(...)
 		
-		for i = 1, #boundCallbacks do
-			boundCallbacks[i](...)
+		for _index, callback in boundCallbacks do
+			callback(...)
 		end
 	end
 
