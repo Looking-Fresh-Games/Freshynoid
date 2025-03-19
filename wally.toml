@@ -1,6 +1,6 @@
 [package]
 name = "lfg-studio/freshynoid"
-version = "1.0.9"
+version = "1.0.10"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 

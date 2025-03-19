@@ -5,9 +5,6 @@
     Description: Dijkstra's pathfinding applied to a weighted graph
 ]]--
 
--- Modules
-local NodeGraph = require(script.Parent.Packages.NodeGraph)
-
 -- Types
 type DistanceHashmap = {[any]: number}
 
@@ -55,7 +52,7 @@ end
 
 -- https://www.youtube.com/watch?v=GazC3A4OQTE
 ---@TODO: add comments documenting all this
-local function dijkstra(graph: NodeGraph.NodeGraph, start: any, target: any)
+local function dijkstra(graph: any, start: any, target: any)
     if start == target then
         return {{
             Node = start,
