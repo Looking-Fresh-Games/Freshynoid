@@ -10,7 +10,6 @@ local StarterPlayer = game:GetService("StarterPlayer")
 
 
 -- Modules
-local NodeGraph = require(script.Parent.Packages.NodeGraph)
 local Pathfinder = require(script.Parent.Pathfinder)
 
 
@@ -27,7 +26,7 @@ export type FreshynoidConfiguration = {
 
     RootPartName: string?,
     RootAttachment: Attachment?,
-    BackupGraph: NodeGraph.NodeGraph?,
+    BackupGraph: any?,
 }
 
 -- Default config used for fields not passed

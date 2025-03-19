@@ -24,14 +24,13 @@ local PathfindingService = game:GetService("PathfindingService")
 local RunService = game:GetService("RunService")
 
 local Dijkstra = require(script.Parent.Dijkstra)
-local NodeGraph = require(script.Parent.Packages.NodeGraph)
 local SmallOctree = require(script.Parent.SmallOctree)
 
 -- Class
 local Pathfinder = {}
 Pathfinder.__index = Pathfinder
 
-function Pathfinder.new(agentParameters: AgentParameters, backupGraph: NodeGraph.NodeGraph?)
+function Pathfinder.new(agentParameters: AgentParameters, backupGraph: any?)
     local self = setmetatable({}, Pathfinder)
 
     -- Refs
@@ -104,7 +103,7 @@ end
 
 
 function Pathfinder:GetNextWaypoint(): (Vector3?, Enum.PathWaypointAction?, string?)
-    if #self.Waypoints == 0 or #self.FallbackPoints == 0 then
+    if #self.Waypoints == 0 or self.UsingFallback and #self.FallbackPoints == 0 then
         return nil
     end
 
@@ -115,7 +114,7 @@ function Pathfinder:GetNextWaypoint(): (Vector3?, Enum.PathWaypointAction?, stri
         if self.CurrentIndex > #self.FallbackPoints then
             return nil
         end
-        
+
         return self.FallbackPoints[self.CurrentIndex].Position
     else
         if self.CurrentIndex > #self.Waypoints then
