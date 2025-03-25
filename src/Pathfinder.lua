@@ -72,7 +72,7 @@ function Pathfinder:PathToPoint(startPoint: Vector3, targetPoint: Vector3): bool
         end
     until (status == true and self.Path.Status == Enum.PathStatus.Success) or attempts > RETRY_COUNT or self.BackupGraph ~= nil
     
-    if self.Path.Status and self.Path.Status == Enum.PathStatus.Success then
+    if self.Path and self.Path.Status and self.Path.Status == Enum.PathStatus.Success then
         self.CurrentIndex = 1
         self.Waypoints = self.Path:GetWaypoints()
 
