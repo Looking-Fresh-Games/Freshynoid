@@ -11,11 +11,36 @@ local UNSTUCK_TIME = .9
 
 -- Services
 local RunService = game:GetService("RunService")
+local StarterPlayer = game:GetService("StarterPlayer")
 
 -- Modules
 local Pathfinder = require(script.Pathfinder)
 local Signal = require(script.Signal)
-local TypeDefs = require(script:WaitForChild("Types"))
+
+-- Types
+
+-- Default states, analogous to HumanoidStateType's. This can be overwritten, or joined.
+export type DefaultStates = "Paused" | "Idle" | "Running" | "Swimming" | "Falling" | "Climbing" | "Dead"
+export type FreshynoidConfiguration = {
+    -- Optional pathfinding overrides; uses defaults if not set
+    AgentParameters: Pathfinder.AgentParameters,
+
+    -- Defaults to StarterPlayer.CharacterWalkSpeed.
+    WalkSpeed: number?,
+
+    RootPartName: string?,
+    RootAttachment: Attachment?,
+    BackupGraph: any?,
+}
+
+-- Default config used for fields not passed
+local DefaultConfiguration: FreshynoidConfiguration = {
+    AgentParameters = {},
+    WalkSpeed = StarterPlayer.CharacterWalkSpeed,
+    RootPartName = "HumanoidRootPart",
+    RootAttachment = false,
+}
+
 
 -- Refs
 local rand = Random.new()
@@ -24,7 +49,7 @@ local rand = Random.new()
 local Freshynoid = {}
 Freshynoid.__index = Freshynoid
 
-function Freshynoid.new(character: Model, configuration: TypeDefs.FreshynoidConfiguration)
+function Freshynoid.new(character: Model, configuration: FreshynoidConfiguration)
     local self = setmetatable({}, Freshynoid)
 
     -- Events
@@ -33,7 +58,7 @@ function Freshynoid.new(character: Model, configuration: TypeDefs.FreshynoidConf
 
     -- Refs
     self.Character = character
-    self.Configuration = self:_getConfiguration(configuration) :: TypeDefs.FreshynoidConfiguration
+    self.Configuration = self:_getConfiguration(configuration) :: FreshynoidConfiguration
     self.Pathfinder = Pathfinder.new({AgentCanJump = false, AgentCanClimb = false})
     self.AnimationTracks = {}
     self._thread = nil
@@ -74,7 +99,7 @@ function Freshynoid:RegisterAnimations(stateName: string, Animations: {Animation
 end
 
 -- Set the current Freshynoid state. Fires a state changed event
-function Freshynoid:SetState(newState: string & TypeDefs.DefaultStates)
+function Freshynoid:SetState(newState: string & DefaultStates)
     -- Don't double set
     if self.FreshyState == newState then
         return
@@ -298,15 +323,15 @@ end
 
 
 -- Adds default values to config table
-function Freshynoid:_getConfiguration(configuration: TypeDefs.FreshynoidConfiguration?)
+function Freshynoid:_getConfiguration(configuration: FreshynoidConfiguration?)
     if not configuration then
-       return table.clone(TypeDefs.DefaultConfiguration)
+       return table.clone(DefaultConfiguration)
     end
 
     -- Shallow copy filling in any omitted fields
     local newConfig = {}
 
-    for key, value in TypeDefs.DefaultConfiguration do
+    for key, value in DefaultConfiguration do
         if configuration[key] ~= nil then
             newConfig[key] = configuration[key]
         else
