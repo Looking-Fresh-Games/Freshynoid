@@ -27,6 +27,7 @@ export type FreshynoidConfiguration = {
 
     -- Defaults to StarterPlayer.CharacterWalkSpeed.
     WalkSpeed: number?,
+    WalkCycleSpeed: number?, -- The WalkSpeed that the walk cycle animations playback at when animation speed is 1. 
 
     RootPartName: string?,
     RootAttachment: Attachment?,
@@ -65,11 +66,12 @@ function Freshynoid.new(character: Model, configuration: FreshynoidConfiguration
     self.UnstuckTimestamp = workspace:GetServerTimeNow() - UNSTUCK_TIME
 
     -- State
-    self.FreshyState = "Paused"
+    self.FreshyState = "Paused" :: DefaultStates
     self.PlayingTrack = nil :: AnimationTrack?
 
     -- Setup
     self:_makeCharacterRefs()
+    self:_bindAnimationSpeed()
     self:SetState("Idle")
 
     -- Connections
@@ -303,9 +305,37 @@ function Freshynoid:Destroy()
     -- Stop moving first
     self:_stopStepping(true)
 
+    if self._walkStepped and self._walkStepped.Connected then
+        self._walkStepped:Disconnect()
+        self._walkStepped = nil
+    end
+
     self.FreshyState = "Dead"
 
-    self.Pathfinder:Destroy()  
+    self.Pathfinder:Destroy()
+end
+
+-- Updates the walk cycle animation based on the current velocity
+function Freshynoid:_bindAnimationSpeed()
+    if not self.Configuration.WalkCycleSpeed then
+        return
+    end
+
+    -- Helper utility to remove the Y component from velocity
+    local function getHorizontalVelocity(velocity: Vector3): Vector3
+        return Vector3.new(velocity.X, 0, velocity.Y)
+    end
+
+    -- Bind to heartbeat, shouldn't unbind until the class is destroyed
+    self._walkStepped = RunService.Heartbeat:Connect(function(_deltaTime: number)
+        if self.FreshyState ~= "Running" or self.PlayingTrack == nil then
+            return
+        end
+
+        -- Remove y component from velocity then scale animation playback by the speed at which the animation foot plants
+        local flatVelc = getHorizontalVelocity(self.RootPart.AssemblyLinearVelocity).Magnitude
+        self.PlayingTrack:AdjustSpeed(flatVelc / self.Configuration.WalkCycleSpeed)
+    end)
 end
 
 -- Disconnects the stepped event
