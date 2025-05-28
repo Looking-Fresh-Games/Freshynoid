@@ -2,7 +2,7 @@
     Freshynoid.lua
     Author: Zach Curtis (InfinityDesign)
 
-    Description: AI NPC object. Uses a finite state machine to run ControllerManager instances. Pathfinds to a given target position. 
+    Description: AI NPC object. Uses a finite state machine to run ControllerManager instances. Pathfinds to a given target position.
 ]]
 --
 

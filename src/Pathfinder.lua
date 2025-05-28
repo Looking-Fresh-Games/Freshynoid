@@ -31,27 +31,24 @@ local SmallOctree = require(script.Parent.SmallOctree)
 local Pathfinder = {}
 Pathfinder.__index = Pathfinder
 
-function Pathfinder.new(agentParameters: AgentParameters, backupGraph: any?)
+function Pathfinder.new(agentParameters: AgentParameters)
 	local self = setmetatable({}, Pathfinder)
 
 	-- Refs
 	self.AgentParameters = self:_getAgentParams(agentParameters)
 	self.Path = PathfindingService:CreatePath(agentParameters)
-	self.BackupGraph = backupGraph
 	self.BackupOctree = SmallOctree.new()
 
 	-- State
 	self.Waypoints = {} :: { PathWaypoint }
 	self.CurrentIndex = 1
 	self.LastTarget = Vector3.zero
-	self.UsingFallback = false
 
 	return self
 end
 
 function Pathfinder:PathToPoint(startPoint: Vector3, targetPoint: Vector3): boolean
 	self.LastTarget = targetPoint
-	self.UsingFallback = false
 
 	local attempts = 0
 	local status, err
@@ -84,53 +81,30 @@ function Pathfinder:PathToPoint(startPoint: Vector3, targetPoint: Vector3): bool
 		self.Waypoints = self.Path:GetWaypoints()
 
 		return true
-	elseif self.BackupGraph ~= nil then
-		self.UsingFallback = true
-
-		-- Regen the octree
-		self.BackupOctree:ClearNodes()
-		for _, node in self.BackupGraph.Nodes do
-			self.BackupOctree:CreateNode(node.Data.Position, node)
-		end
-
-		-- Get the start and end nodes
-		local fallbackStart = self:_getNearestNodeFromTree(startPoint, 80)
-		local fallbackEnd = self:_getNearestNodeFromTree(targetPoint, 80)
-
-		self.FallbackPoints = Dijkstra(self.BackupGraph, fallbackStart, fallbackEnd)
-
-		return true
-	elseif RunService:IsStudio() then
-		warn(`Pathfind failed: {self.Path.Status.Name}`)
-		return false
-	else
-		return false
 	end
+
+	if RunService:IsStudio() then
+		warn(`Pathfind failed: {self.Path.Status.Name}`)
+	end
+
+	return false
 end
 
 function Pathfinder:GetNextWaypoint(): (Vector3?, Enum.PathWaypointAction?, string?)
-	if #self.Waypoints == 0 or self.UsingFallback and #self.FallbackPoints == 0 then
+	if #self.Waypoints == 0 then
+		return nil
+	end
+
+	if self.CurrentIndex > #self.Waypoints then
 		return nil
 	end
 
 	-- Increment the path
 	self.CurrentIndex += 1
 
-	if self.UsingFallback == true then
-		if self.CurrentIndex > #self.FallbackPoints then
-			return nil
-		end
+	local waypoint = self.Waypoints[self.CurrentIndex] :: PathWaypoint
 
-		return self.FallbackPoints[self.CurrentIndex].Position
-	else
-		if self.CurrentIndex > #self.Waypoints then
-			return nil
-		end
-
-		local waypoint = self.Waypoints[self.CurrentIndex] :: PathWaypoint
-
-		return waypoint.Position, waypoint.Action, waypoint.Label
-	end
+	return waypoint.Position, waypoint.Action, waypoint.Label
 end
 
 function Pathfinder:Destroy()
