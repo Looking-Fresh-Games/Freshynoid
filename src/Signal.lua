@@ -64,6 +64,19 @@ function Signal.new()
 		end
 	end
 
+	function self:Wait()
+		local thread: thread = coroutine.running()
+
+		local connection
+
+		connection = self:Connect(function(...)
+			connection:Disconnect()
+			coroutine.resume(thread, ...)
+		end)
+
+		return coroutine.yield()
+	end
+
 	return self
 end
 
