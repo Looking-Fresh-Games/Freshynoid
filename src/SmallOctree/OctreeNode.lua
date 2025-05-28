@@ -1,7 +1,7 @@
 -- Basic node interacting with the octree
 -- classmod OctreeNode
 
-local OctreeNode = {ClassName = "OctreeNode"}
+local OctreeNode = { ClassName = "OctreeNode" }
 OctreeNode.__index = OctreeNode
 
 local null = nil
@@ -9,23 +9,23 @@ local null = nil
 function OctreeNode.new(Octree, Object)
 	return setmetatable({
 		-- Public
-		Object = Object or error("No object");
+		Object = Object or error("No object"),
 
 		-- @type Vector3
-		Position = null;
+		Position = null,
 
 		-- Private
-		CurrentLowestRegion = null;
-		Octree = Octree or error("No octree");
+		CurrentLowestRegion = null,
+		Octree = Octree or error("No octree"),
 
 		-- @type number
-		PositionX = null;
+		PositionX = null,
 
 		-- @type number
-		PositionY = null;
+		PositionY = null,
 
 		-- @type number
-		PositionZ = null;
+		PositionZ = null,
 	}, OctreeNode)
 end
 
@@ -81,7 +81,8 @@ function OctreeNode:SetPosition(Position: Vector3)
 		end
 	end
 
-	local NewLowestRegion = self.Octree:GetOrCreateLowestSubRegion(PositionX, PositionY, PositionZ)
+	local NewLowestRegion =
+		self.Octree:GetOrCreateLowestSubRegion(PositionX, PositionY, PositionZ)
 	if self.CurrentLowestRegion then
 		local FromLowest = self.CurrentLowestRegion
 		if FromLowest.Depth ~= NewLowestRegion.Depth then

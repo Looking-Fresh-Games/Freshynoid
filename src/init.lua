@@ -3,11 +3,12 @@
     Author: Zach Curtis (InfinityDesign)
 
     Description: AI NPC object. Uses a finite state machine to run ControllerManager instances. Pathfinds to a given target position. 
-]]--
+]]
+--
 
 -- Constants
 local DEBUG_PATH = false
-local UNSTUCK_TIME = .9
+local UNSTUCK_TIME = 0.9
 
 -- Services
 local RunService = game:GetService("RunService")
@@ -20,28 +21,34 @@ local Signal = require(script.Signal)
 -- Types
 
 -- Default states, analogous to HumanoidStateType's. This can be overwritten, or joined.
-export type DefaultStates = "Paused" | "Idle" | "Running" | "Swimming" | "Falling" | "Climbing" | "Dead"
+export type DefaultStates =
+	"Paused"
+	| "Idle"
+	| "Running"
+	| "Swimming"
+	| "Falling"
+	| "Climbing"
+	| "Dead"
 export type FreshynoidConfiguration = {
-    -- Optional pathfinding overrides; uses defaults if not set
-    AgentParameters: Pathfinder.AgentParameters,
+	-- Optional pathfinding overrides; uses defaults if not set
+	AgentParameters: Pathfinder.AgentParameters,
 
-    -- Defaults to StarterPlayer.CharacterWalkSpeed.
-    WalkSpeed: number?,
-    WalkCycleSpeed: number?, -- The WalkSpeed that the walk cycle animations playback at when animation speed is 1. 
+	-- Defaults to StarterPlayer.CharacterWalkSpeed.
+	WalkSpeed: number?,
+	WalkCycleSpeed: number?, -- The WalkSpeed that the walk cycle animations playback at when animation speed is 1.
 
-    RootPartName: string?,
-    RootAttachment: Attachment?,
-    BackupGraph: any?,
+	RootPartName: string?,
+	RootAttachment: Attachment?,
+	BackupGraph: any?,
 }
 
 -- Default config used for fields not passed
 local DefaultConfiguration: FreshynoidConfiguration = {
-    AgentParameters = {},
-    WalkSpeed = StarterPlayer.CharacterWalkSpeed,
-    RootPartName = "HumanoidRootPart",
-    RootAttachment = false,
+	AgentParameters = {},
+	WalkSpeed = StarterPlayer.CharacterWalkSpeed,
+	RootPartName = "HumanoidRootPart",
+	RootAttachment = false,
 }
-
 
 -- Refs
 local rand = Random.new()
@@ -51,349 +58,359 @@ local Freshynoid = {}
 Freshynoid.__index = Freshynoid
 
 function Freshynoid.new(character: Model, configuration: FreshynoidConfiguration)
-    local self = setmetatable({}, Freshynoid)
+	local self = setmetatable({}, Freshynoid)
 
-    -- Events
-    self.StateChanged = Signal.new()
-    self.MoveToComplete = Signal.new()
+	-- Events
+	self.StateChanged = Signal.new()
+	self.MoveToComplete = Signal.new()
 
-    -- Refs
-    self.Character = character
-    self.Configuration = self:_getConfiguration(configuration) :: FreshynoidConfiguration
-    self.Pathfinder = Pathfinder.new({AgentCanJump = false, AgentCanClimb = false})
-    self.AnimationTracks = {}
-    self._thread = nil
-    self.UnstuckTimestamp = workspace:GetServerTimeNow() - UNSTUCK_TIME
+	-- Refs
+	self.Character = character
+	self.Configuration = self:_getConfiguration(configuration) :: FreshynoidConfiguration
+	self.Pathfinder = Pathfinder.new({ AgentCanJump = false, AgentCanClimb = false })
+	self.AnimationTracks = {}
+	self._thread = nil
+	self.UnstuckTimestamp = workspace:GetServerTimeNow() - UNSTUCK_TIME
 
-    -- State
-    self.FreshyState = "Paused" :: DefaultStates
-    self.PlayingTrack = nil :: AnimationTrack?
+	-- State
+	self.FreshyState = "Paused" :: DefaultStates
+	self.PlayingTrack = nil :: AnimationTrack?
 
-    -- Setup
-    self:_makeCharacterRefs()
-    self:_bindAnimationSpeed()
-    self:SetState("Idle")
+	-- Setup
+	self:_makeCharacterRefs()
+	self:_bindAnimationSpeed()
+	self:SetState("Idle")
 
-    -- Connections
-    self._stepped = nil :: RBXScriptConnection?
+	-- Connections
+	self._stepped = nil :: RBXScriptConnection?
 
-    return self
+	return self
 end
 
-function Freshynoid:RegisterAnimations(stateName: string, Animations: {Animation})
-    -- Don't double load
-    if self.AnimationTracks[stateName] then
-        return
-    end
+function Freshynoid:RegisterAnimations(stateName: string, Animations: { Animation })
+	-- Don't double load
+	if self.AnimationTracks[stateName] then
+		return
+	end
 
-    self.AnimationTracks[stateName] = {}
+	self.AnimationTracks[stateName] = {}
 
-    -- Get Animator to load tracks from
-    local animator = self.Character:FindFirstChild("Animator", true) :: Animator?
-    if not animator then
-        return
-    end
+	-- Get Animator to load tracks from
+	local animator = self.Character:FindFirstChild("Animator", true) :: Animator?
+	if not animator then
+		return
+	end
 
-    -- Load the tracks
-    for _, animation in Animations do
-        table.insert(self.AnimationTracks[stateName], animator:LoadAnimation(animation))
-    end
+	-- Load the tracks
+	for _, animation in Animations do
+		table.insert(self.AnimationTracks[stateName], animator:LoadAnimation(animation))
+	end
 end
 
 -- Set the current Freshynoid state. Fires a state changed event
 function Freshynoid:SetState(newState: string & DefaultStates)
-    -- Don't double set
-    if self.FreshyState == newState then
-        return
-    end
+	-- Don't double set
+	if self.FreshyState == newState then
+		return
+	end
 
-    local oldState = self.FreshyState
-    self.FreshyState = newState
+	local oldState = self.FreshyState
+	self.FreshyState = newState
 
-    -- Stop the old track
-    if self.PlayingTrack then
-        self.PlayingTrack:Stop()
-        self.PlayingTrack = nil
-    end
+	-- Stop the old track
+	if self.PlayingTrack then
+		self.PlayingTrack:Stop()
+		self.PlayingTrack = nil
+	end
 
-    -- Play one or random animations
-    if self.AnimationTracks[newState] then
-        if #self.AnimationTracks[newState] == 1 then
-            self.PlayingTrack = self.AnimationTracks[newState][1]
-            self.PlayingTrack:Play()
-        
-        elseif #self.AnimationTracks[newState] > 1 then
-            local index = rand:NextInteger(1, #self.AnimationTracks[newState])
-            self.PlayingTrack = self.AnimationTracks[newState][index]
-            self.PlayingTrack:Play()
-        end
-    end
+	-- Play one or random animations
+	if self.AnimationTracks[newState] then
+		if #self.AnimationTracks[newState] == 1 then
+			self.PlayingTrack = self.AnimationTracks[newState][1]
+			self.PlayingTrack:Play()
+		elseif #self.AnimationTracks[newState] > 1 then
+			local index = rand:NextInteger(1, #self.AnimationTracks[newState])
+			self.PlayingTrack = self.AnimationTracks[newState][index]
+			self.PlayingTrack:Play()
+		end
+	end
 
-    -- Tell the world
-    self.StateChanged:Fire(oldState, newState)
+	-- Tell the world
+	self.StateChanged:Fire(oldState, newState)
 end
 
 -- Getter for uniformity
 function Freshynoid:GetState()
-    return self.FreshyState
+	return self.FreshyState
 end
 
 -- Allows switching between a RootPart or RootAttachment for pathfinding position
 function Freshynoid:GetRootPosition()
-    if self.RootAttachment then
-        return self.RootAttachment.WorldCFrame.Position
-    else
-        return self.RootPart.Position
-    end
+	if self.RootAttachment then
+		return self.RootAttachment.WorldCFrame.Position
+	else
+		return self.RootPart.Position
+	end
 end
 
 -- Given a point in world space, walk to it, with optional pathfinding
-function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)    
-    if not self.Manager then
-        return
-    end
+function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
+	if not self.Manager then
+		return
+	end
 
-    self:_stopStepping(false)
+	self:_stopStepping(false)
 
-    if self.FreshyState ~= "Running" and self.FreshyState ~= "Paused" then
-        self:SetState("Running")
-    end
+	if self.FreshyState ~= "Running" and self.FreshyState ~= "Paused" then
+		self:SetState("Running")
+	end
 
-    -- Just turn that direction and start moving
-    if shouldPathfind == false then
-        local direction = point - self:GetRootPosition()
-        self._stepped = RunService.Heartbeat:Connect(function()
-            -- Check to make sure we're still running
-            if self.FreshyState ~= "Running" then
-                self:_stopStepping(false)
-                return
-            end
+	-- Just turn that direction and start moving
+	if shouldPathfind == false then
+		local direction = point - self:GetRootPosition()
+		self._stepped = RunService.Heartbeat:Connect(function()
+			-- Check to make sure we're still running
+			if self.FreshyState ~= "Running" then
+				self:_stopStepping(false)
+				return
+			end
 
-            local newDirection = point - self:GetRootPosition()
+			local newDirection = point - self:GetRootPosition()
 
-            -- In range to advance to the next waypoint
-            if newDirection.Magnitude <= 5 then
-                self:_stopStepping(false)
-                self.MoveToComplete:Fire()
-            end
-        end)
+			-- In range to advance to the next waypoint
+			if newDirection.Magnitude <= 5 then
+				self:_stopStepping(false)
+				self.MoveToComplete:Fire()
+			end
+		end)
 
-        self:WalkInDirection(direction, true)
+		self:WalkInDirection(direction, true)
 
-        return
-    end
+		return
+	end
 
-    if self._thread and coroutine.status(self._thread) == "suspended" then
-        task.cancel(self._thread)
-        self._thread = nil
-    end
+	if self._thread and coroutine.status(self._thread) == "suspended" then
+		task.cancel(self._thread)
+		self._thread = nil
+	end
 
-    -- Solve the path
-    local makePath = self.Pathfinder:PathToPoint(self:GetRootPosition(), point)
-    if makePath == false then
-        self:WalkInDirection(self.Manager.MovingDirection * -1, false)
-        
-        self._thread = task.delay(.2, function()
-            self:WalkToPoint(point, true)
-        end)
-        return
-    end
+	-- Solve the path
+	local makePath = self.Pathfinder:PathToPoint(self:GetRootPosition(), point)
+	if makePath == false then
+		self:WalkInDirection(self.Manager.MovingDirection * -1, false)
 
-    -- For debugging path
-    if DEBUG_PATH == true then
-        for _, waypoint: PathWaypoint in self.Pathfinder.Waypoints do
-            local part = Instance.new("Part")
-            part.Anchored = true
-            part.CanCollide = false
-            part.Shape = Enum.PartType.Ball
-            part.Color = Color3.new(1, 0, 0)
-            part.CFrame = CFrame.new(waypoint.Position)
+		self._thread = task.delay(0.2, function()
+			self:WalkToPoint(point, true)
+		end)
+		return
+	end
 
-            local pathModifier = Instance.new("PathfindingModifier")
-            pathModifier.PassThrough = true
-            pathModifier.Parent = part
+	-- For debugging path
+	if DEBUG_PATH == true then
+		for _, waypoint: PathWaypoint in self.Pathfinder.Waypoints do
+			local part = Instance.new("Part")
+			part.Anchored = true
+			part.CanCollide = false
+			part.Shape = Enum.PartType.Ball
+			part.Color = Color3.new(1, 0, 0)
+			part.CFrame = CFrame.new(waypoint.Position)
 
-            part.Parent = workspace
-        end
-    end
+			local pathModifier = Instance.new("PathfindingModifier")
+			pathModifier.PassThrough = true
+			pathModifier.Parent = part
 
-    -- Hoisted above the stepped
-    local nextWayPos, _nextAction, _nextLabel = self.Pathfinder:GetNextWaypoint()
-    if not nextWayPos then
-        self:WalkInDirection(self.Manager.MovingDirection * -1, false)
+			part.Parent = workspace
+		end
+	end
 
-        self._thread = task.delay(.2, function()
-            self:WalkToPoint(point, true)
-        end)
-        return
-    end
+	-- Hoisted above the stepped
+	local nextWayPos, _nextAction, _nextLabel = self.Pathfinder:GetNextWaypoint()
+	if not nextWayPos then
+		self:WalkInDirection(self.Manager.MovingDirection * -1, false)
 
-    -- Update loop
-    self._stepped = RunService.Heartbeat:Connect(function()
-        if workspace:GetServerTimeNow() - self.UnstuckTimestamp <= UNSTUCK_TIME then
-            return
-        end
+		self._thread = task.delay(0.2, function()
+			self:WalkToPoint(point, true)
+		end)
+		return
+	end
 
-        -- Check to make sure we're still running
-        if self.FreshyState ~= "Running" or nextWayPos == nil then
-            self:_stopStepping(true)
-            if self._thread and coroutine.status(self._thread) == "suspended" then
-                task.cancel(self._thread)
-                self._thread = nil
-            end
-            return
-        end
+	-- Update loop
+	self._stepped = RunService.Heartbeat:Connect(function()
+		if workspace:GetServerTimeNow() - self.UnstuckTimestamp <= UNSTUCK_TIME then
+			return
+		end
 
+		-- Check to make sure we're still running
+		if self.FreshyState ~= "Running" or nextWayPos == nil then
+			self:_stopStepping(true)
+			if self._thread and coroutine.status(self._thread) == "suspended" then
+				task.cancel(self._thread)
+				self._thread = nil
+			end
+			return
+		end
 
-        local direction = Vector3.new(nextWayPos.X, self:GetRootPosition().Y, nextWayPos.Z) - self:GetRootPosition()
-        local velocity = self.RootPart.AssemblyLinearVelocity.Magnitude
+		local direction = Vector3.new(
+			nextWayPos.X,
+			self:GetRootPosition().Y,
+			nextWayPos.Z
+		) - self:GetRootPosition()
+		local velocity = self.RootPart.AssemblyLinearVelocity.Magnitude
 
-        if velocity < 1.1920928955078125e-07 then
-            self.UnstuckTimestamp = workspace:GetServerTimeNow()
-            self:WalkInDirection(-direction, true)
-            return
-        end
+		if velocity < 1.1920928955078125e-07 then
+			self.UnstuckTimestamp = workspace:GetServerTimeNow()
+			self:WalkInDirection(-direction, true)
+			return
+		end
 
-        -- In range to advance to the next waypoint
-        if direction.Magnitude <= self.Pathfinder.AgentParameters.WaypointSpacing * .8 then
-            -- Updated hoisted targets
-            nextWayPos, _nextAction, _nextLabel = self.Pathfinder:GetNextWaypoint()
-            if not nextWayPos then
-                self:_stopStepping(false)
-                self.MoveToComplete:Fire()
-                
-                return
-            end
-        end
+		-- In range to advance to the next waypoint
+		if
+			direction.Magnitude
+			<= self.Pathfinder.AgentParameters.WaypointSpacing * 0.8
+		then
+			-- Updated hoisted targets
+			nextWayPos, _nextAction, _nextLabel = self.Pathfinder:GetNextWaypoint()
+			if not nextWayPos then
+				self:_stopStepping(false)
+				self.MoveToComplete:Fire()
 
-        -- Head that way
-        local newDirection = Vector3.new(nextWayPos.X, self:GetRootPosition().Y, nextWayPos.Z) - self:GetRootPosition()
-        self:WalkInDirection(newDirection, true)
-    end)
+				return
+			end
+		end
+
+		-- Head that way
+		local newDirection = Vector3.new(
+			nextWayPos.X,
+			self:GetRootPosition().Y,
+			nextWayPos.Z
+		) - self:GetRootPosition()
+		self:WalkInDirection(newDirection, true)
+	end)
 end
 
 -- Given a direction vector, walk the direction it points
 function Freshynoid:WalkInDirection(direction: Vector3, keepWalking: boolean?)
-    if direction.Magnitude > 1 then
-        direction = direction.Unit
-    end
+	if direction.Magnitude > 1 then
+		direction = direction.Unit
+	end
 
-    if not self.Manager then
-        return
-    end
+	if not self.Manager then
+		return
+	end
 
-    if self.FreshyState ~= "Running" then
-        return
-    end
+	if self.FreshyState ~= "Running" then
+		return
+	end
 
-    -- Stop moving first
-    if not keepWalking then
-        self:_stopStepping(false)
-    end
+	-- Stop moving first
+	if not keepWalking then
+		self:_stopStepping(false)
+	end
 
-    -- Walk that way
-    self.Manager.MovingDirection = direction
-    
-    -- Turn that direction
-    if direction.Magnitude ~= 0 then
-        self.Manager.FacingDirection = direction
-    end
+	-- Walk that way
+	self.Manager.MovingDirection = direction
+
+	-- Turn that direction
+	if direction.Magnitude ~= 0 then
+		self.Manager.FacingDirection = direction
+	end
 end
 
 -- Cleanup
 function Freshynoid:Destroy()
-    -- Stop moving first
-    self:_stopStepping(true)
+	-- Stop moving first
+	self:_stopStepping(true)
 
-    if self._walkStepped and self._walkStepped.Connected then
-        self._walkStepped:Disconnect()
-        self._walkStepped = nil
-    end
+	if self._walkStepped and self._walkStepped.Connected then
+		self._walkStepped:Disconnect()
+		self._walkStepped = nil
+	end
 
-    self.FreshyState = "Dead"
+	self.FreshyState = "Dead"
 
-    self.Pathfinder:Destroy()
+	self.Pathfinder:Destroy()
 end
 
 -- Updates the walk cycle animation based on the current velocity
 function Freshynoid:_bindAnimationSpeed()
-    if not self.Configuration.WalkCycleSpeed then
-        return
-    end
+	if not self.Configuration.WalkCycleSpeed then
+		return
+	end
 
-    -- Helper utility to remove the Y component from velocity
-    local function getHorizontalVelocity(velocity: Vector3): Vector3
-        return Vector3.new(velocity.X, 0, velocity.Y)
-    end
+	-- Helper utility to remove the Y component from velocity
+	local function getHorizontalVelocity(velocity: Vector3): Vector3
+		return Vector3.new(velocity.X, 0, velocity.Y)
+	end
 
-    -- Bind to heartbeat, shouldn't unbind until the class is destroyed
-    self._walkStepped = RunService.Heartbeat:Connect(function(_deltaTime: number)
-        if self.FreshyState ~= "Running" or self.PlayingTrack == nil then
-            return
-        end
+	-- Bind to heartbeat, shouldn't unbind until the class is destroyed
+	self._walkStepped = RunService.Heartbeat:Connect(function(_deltaTime: number)
+		if self.FreshyState ~= "Running" or self.PlayingTrack == nil then
+			return
+		end
 
-        -- Remove y component from velocity then scale animation playback by the speed at which the animation foot plants
-        local flatVelc = getHorizontalVelocity(self.RootPart.AssemblyLinearVelocity).Magnitude
-        self.PlayingTrack:AdjustSpeed(flatVelc / self.Configuration.WalkCycleSpeed)
-    end)
+		-- Remove y component from velocity then scale animation playback by the speed at which the animation foot plants
+		local flatVelc =
+			getHorizontalVelocity(self.RootPart.AssemblyLinearVelocity).Magnitude
+		self.PlayingTrack:AdjustSpeed(flatVelc / self.Configuration.WalkCycleSpeed)
+	end)
 end
 
 -- Disconnects the stepped event
 function Freshynoid:_stopStepping(resetState: boolean)
-    if self._stepped and self._stepped.Connected then
-        self._stepped:Disconnect()
-        self._stepped = nil
-    end
+	if self._stepped and self._stepped.Connected then
+		self._stepped:Disconnect()
+		self._stepped = nil
+	end
 
-    if resetState and self.Manager and self.FreshyState == "Running" then
-        self:SetState("Idle")
-        self.Manager.MovingDirection = Vector3.zero
-    end
+	if resetState and self.Manager and self.FreshyState == "Running" then
+		self:SetState("Idle")
+		self.Manager.MovingDirection = Vector3.zero
+	end
 end
-
 
 -- Adds default values to config table
 function Freshynoid:_getConfiguration(configuration: FreshynoidConfiguration?)
-    if not configuration then
-       return table.clone(DefaultConfiguration)
-    end
+	if not configuration then
+		return table.clone(DefaultConfiguration)
+	end
 
-    -- Shallow copy filling in any omitted fields
-    local newConfig = {}
+	-- Shallow copy filling in any omitted fields
+	local newConfig = {}
 
-    for key, value in DefaultConfiguration do
-        if configuration[key] ~= nil then
-            newConfig[key] = configuration[key]
-        else
-            newConfig[key] = value
-        end
-    end
+	for key, value in DefaultConfiguration do
+		if configuration[key] ~= nil then
+			newConfig[key] = configuration[key]
+		else
+			newConfig[key] = value
+		end
+	end
 
-    return newConfig
+	return newConfig
 end
 
 -- Makes refs to character instances
 function Freshynoid:_makeCharacterRefs()
-    if not self.Character then
-        return
-    end
+	if not self.Character then
+		return
+	end
 
-    -- Standard rig root part
-    self.RootPart = self.Character:WaitForChild(self.Configuration.RootPartName)
-    self.RootAttachment = self.Configuration.RootAttachment
-    
- 
-    -- Controller manager stuff
-    -- https://create.roblox.com/docs/physics/character-controllers
-    self.Manager = self.Character:FindFirstChild("ControllerManager", true) :: ControllerManager?
-    self.GroundController = self.Character:FindFirstChild("GroundController", true) :: GroundController?
+	-- Standard rig root part
+	self.RootPart = self.Character:WaitForChild(self.Configuration.RootPartName)
+	self.RootAttachment = self.Configuration.RootAttachment
 
-    if self.Manager then
-        self.Manager.BaseMoveSpeed = self.Configuration.WalkSpeed
+	-- Controller manager stuff
+	-- https://create.roblox.com/docs/physics/character-controllers
+	self.Manager =
+		self.Character:FindFirstChild("ControllerManager", true) :: ControllerManager?
+	self.GroundController =
+		self.Character:FindFirstChild("GroundController", true) :: GroundController?
 
-        -- Don't have them all awkwardly spin north on spawn
-        self.Manager.FacingDirection = self.RootPart.CFrame.LookVector
-    end
+	if self.Manager then
+		self.Manager.BaseMoveSpeed = self.Configuration.WalkSpeed
+
+		-- Don't have them all awkwardly spin north on spawn
+		self.Manager.FacingDirection = self.RootPart.CFrame.LookVector
+	end
 end
 
 return Freshynoid
