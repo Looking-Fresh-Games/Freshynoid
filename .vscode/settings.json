@@ -1,4 +1,18 @@
 {
+    "luau-lsp.diagnostics.workspace": true,
+    "luau-lsp.completion.imports.enabled": true,
+    "luau-lsp.sourcemap.autogenerate": true,
+
+    "[lua]": {
+        "editor.defaultFormatter": "JohnnyMorganz.stylua",
+        "editor.formatOnSave": true
+    },
+
+    "[luau]": {
+        "editor.defaultFormatter": "JohnnyMorganz.stylua",
+        "editor.formatOnSave": true
+    },
+
     "cSpell.words": [
         "Freshy",
         "Freshynoid",
