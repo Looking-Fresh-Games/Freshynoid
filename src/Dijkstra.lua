@@ -161,6 +161,11 @@ local function dijkstra(graph: any, start: any, target: any)
 		local targetEdges = graph:GetEdgesForNode(currentReverseNode)
 		local targetAdjacent = {}
 
+		if not targetEdges or #targetEdges == 0 then
+			warn(`No edges found for node {currentReverseNode} in graph {graph}`)
+			return
+		end
+
 		for _, edge in targetEdges do
 			if edge.Node0 == currentReverseNode then
 				targetAdjacent[edge.Node1] = finalDistance[edge.Node1]

@@ -4,21 +4,24 @@
 
     Description: AI NPC object. Uses a finite state machine to run ControllerManager instances. Pathfinds to a given target position.
 ]]
---
 
--- Constants
-local DEBUG_PATH = false
-local UNSTUCK_TIME = 0.9
-
--- Services
 local RunService = game:GetService("RunService")
 local StarterPlayer = game:GetService("StarterPlayer")
+local Workspace = game:GetService("Workspace")
 
--- Modules
 local Pathfinder = require(script.Pathfinder)
 local Signal = require(script.Signal)
 
--- Types
+local DEBUG_PATH = false
+local UNSTUCK_TIME = 0.9
+local MIN_AGENT_RADIUS = 2
+local AGENT_RADIUS_PADDING = 1 -- Padding to prevent getting stuck on walls
+
+local function debugPrint(...)
+	if DEBUG_PATH then
+		print(...)
+	end
+end
 
 -- Default states, analogous to HumanoidStateType's. This can be overwritten, or joined.
 export type DefaultStates =
@@ -63,18 +66,26 @@ function Freshynoid.new(character: Model, configuration: FreshynoidConfiguration
 	-- Events
 	self.StateChanged = Signal.new()
 	self.MoveToComplete = Signal.new()
+	self.Stuck = Signal.new()
 
 	-- Refs
 	self.Character = character
-	self.Configuration = self:_getConfiguration(configuration) :: FreshynoidConfiguration
-	self.Pathfinder = Pathfinder.new({ AgentCanJump = false, AgentCanClimb = false })
+	self.Configuration = self:_formatConfig(configuration) :: FreshynoidConfiguration
+	self.Pathfinder =
+		Pathfinder.new(self.Configuration.AgentParameters, self.Configuration.BackupGraph)
 	self.AnimationTracks = {}
 	self._thread = nil
-	self.UnstuckTimestamp = workspace:GetServerTimeNow() - UNSTUCK_TIME
+
+	self.lastStuckAt = Workspace:GetServerTimeNow() - UNSTUCK_TIME -- When we last got stuck
 
 	-- State
 	self.FreshyState = "Paused" :: DefaultStates
 	self.PlayingTrack = nil :: AnimationTrack?
+
+	self.noPathAttempts = 0
+	self.lastNoPathAt = 0
+
+	self.lastPosition = Vector3.zero -- Last target position
 
 	-- Setup
 	self:_makeCharacterRefs()
@@ -153,38 +164,96 @@ function Freshynoid:GetRootPosition()
 	end
 end
 
+local testParts = {}
+
 -- Given a point in world space, walk to it, with optional pathfinding
-function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
+function Freshynoid:WalkToPoint(
+	point: Vector3,
+	shouldPathfind: boolean,
+	automatedCall: boolean?
+)
+	if not automatedCall then
+		self.noPathAttempts = 0
+		self.lastNoPathAt = 0
+	end
+
+	-- Track the last WalkToPoint call to prevent concurrent calls
+	self._walkToPointToken = (self._walkToPointToken or 0) + 1
+	local walkToken = self._walkToPointToken
+
 	if not self.Manager then
 		return
 	end
 
-	self:_stopStepping(false)
+	self:_stopStepping(false, 1)
 
 	if self.FreshyState ~= "Running" and self.FreshyState ~= "Paused" then
 		self:SetState("Running")
 	end
 
+	local currentPosition = self:GetRootPosition()
+	local travelTime: number = (currentPosition - point).Magnitude
+		/ (self.Configuration.WalkSpeed or 16)
+	local startTime = os.clock()
+
+	debugPrint("expected travel time:", travelTime)
+
+	local startDirection = point - currentPosition
+
+	if startDirection.Magnitude < 1 then
+		debugPrint("point is too close, considering it reached")
+		self.MoveToComplete:Fire()
+		self.lastPosition = point -- Track last target position
+		self.noPathAttempts = 0 -- Reset attempts only when target reached
+		return
+	end
+
 	-- Just turn that direction and start moving
 	if shouldPathfind == false then
-		local direction = point - self:GetRootPosition()
 		self._stepped = RunService.Heartbeat:Connect(function()
+			if walkToken ~= self._walkToPointToken then
+				self:_stopStepping(false, 2)
+				return
+			end
 			-- Check to make sure we're still running
 			if self.FreshyState ~= "Running" then
-				self:_stopStepping(false)
+				self:_stopStepping(false, 3)
 				return
 			end
 
 			local newDirection = point - self:GetRootPosition()
 
+			-- Check for travelTime timeout
+			if os.clock() - startTime > travelTime then
+				self.Manager.MovingDirection = Vector3.zero
+				debugPrint("estimated travel time exceeded, continuing")
+
+				-- Attempt to walk to the point again with pathfinding
+				return self:WalkToPoint(point, true, true)
+			end
+
 			-- In range to advance to the next waypoint
 			if newDirection.Magnitude <= 5 then
-				self:_stopStepping(false)
-				self.MoveToComplete:Fire()
+				-- Only stop if we're actually at the target point
+				if newDirection.Magnitude <= 1 then
+					self:_stopStepping(false, 5)
+					self.MoveToComplete:Fire()
+					self.lastPosition = point -- Track last target position
+					self.noPathAttempts = 0 -- Reset attempts only when target reached
+					return
+				end
+
+				-- Otherwise, continue moving towards the point
+				self:WalkInDirection(newDirection, true)
+			else
+				-- Continue moving towards the point
+				self:WalkInDirection(newDirection, true)
 			end
+
+			return
 		end)
 
-		self:WalkInDirection(direction, true)
+		self:WalkInDirection(startDirection, true)
 
 		return
 	end
@@ -195,23 +264,67 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
 	end
 
 	-- Solve the path
-	local makePath = self.Pathfinder:PathToPoint(self:GetRootPosition(), point)
-	if makePath == false then
+	local madePath = self.Pathfinder:PathToPoint(currentPosition, point)
+
+	if madePath == false then
+		-- Teleport to the point if pathfinding fails
+		local magnitude = (point - currentPosition).Magnitude
+
+		if magnitude > 100 then
+			debugPrint(
+				"monster is out of bounds, teleporting to point",
+				tostring(point),
+				"current pos:",
+				tostring(currentPosition)
+			)
+			self.Character:PivotTo(CFrame.new(point))
+			self.MoveToComplete:Fire()
+			return
+		end
+
+		debugPrint("could not find path to point", point)
+		local now = os.clock()
+
+		self.lastNoPathAt = now
+		self.noPathAttempts += 1 -- Increment attempts on each failure
+
+		debugPrint("no path attempts 1: ", self.noPathAttempts)
+
+		if self.noPathAttempts > 2 then
+			self.Stuck:Fire()
+			debugPrint("STUCK")
+			return
+		end
+
+		debugPrint("no path attempts 2:", self.noPathAttempts)
+
+		debugPrint("walking backwards 000")
 		self:WalkInDirection(self.Manager.MovingDirection * -1, false)
 
 		self._thread = task.delay(0.2, function()
-			self:WalkToPoint(point, true)
+			if walkToken ~= self._walkToPointToken then
+				return
+			end
+			self:WalkToPoint(point, false, true)
 		end)
+
 		return
 	end
 
 	-- For debugging path
 	if DEBUG_PATH == true then
+		for _, part in testParts do
+			part:Destroy()
+		end
+
 		for _, waypoint: PathWaypoint in self.Pathfinder.Waypoints do
 			local part = Instance.new("Part")
 			part.Anchored = true
 			part.CanCollide = false
+			part.CanQuery = false
+			part.CanTouch = false
 			part.Shape = Enum.PartType.Ball
+			part.Size = Vector3.new(1, 1, 1) * 0.4
 			part.Color = Color3.new(1, 0, 0)
 			part.CFrame = CFrame.new(waypoint.Position)
 
@@ -219,30 +332,48 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
 			pathModifier.PassThrough = true
 			pathModifier.Parent = part
 
-			part.Parent = workspace
+			part.Parent = Workspace
+
+			table.insert(testParts, part)
 		end
 	end
 
 	-- Hoisted above the stepped
 	local nextWayPos, _nextAction, _nextLabel = self.Pathfinder:GetNextWaypoint()
 	if not nextWayPos then
-		self:WalkInDirection(self.Manager.MovingDirection * -1, false)
+		debugPrint("walking backwards")
+		-- self:WalkInDirection(self.Manager.MovingDirection * -1, false)
 
-		self._thread = task.delay(0.2, function()
-			self:WalkToPoint(point, true)
-		end)
+		-- self._thread = task.delay(0.2, function()
+		-- 	if walkToken ~= self._walkToPointToken then
+		-- 		return
+		-- 	end
+		-- 	self:WalkToPoint(point, false, true)
+		-- end)
+		self:_stopStepping(false, 19)
+		self.MoveToComplete:Fire()
+		self.lastPosition = point -- Track last target position
+		self.noPathAttempts = 0 -- Reset attempts only when target reached
 		return
 	end
 
 	-- Update loop
-	self._stepped = RunService.Heartbeat:Connect(function()
-		if workspace:GetServerTimeNow() - self.UnstuckTimestamp <= UNSTUCK_TIME then
+	self._stepped = RunService.Stepped:Connect(function()
+		local _currentPosition = self:GetRootPosition()
+
+		if walkToken ~= self._walkToPointToken then
+			self:_stopStepping(true, 6)
+			return
+		end
+		local now = Workspace:GetServerTimeNow()
+
+		if now - self.lastStuckAt <= UNSTUCK_TIME then
 			return
 		end
 
 		-- Check to make sure we're still running
 		if self.FreshyState ~= "Running" or nextWayPos == nil then
-			self:_stopStepping(true)
+			self:_stopStepping(true, 8)
 			if self._thread and coroutine.status(self._thread) == "suspended" then
 				task.cancel(self._thread)
 				self._thread = nil
@@ -250,20 +381,37 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
 			return
 		end
 
-		local direction = Vector3.new(
-			nextWayPos.X,
-			self:GetRootPosition().Y,
-			nextWayPos.Z
-		) - self:GetRootPosition()
+		-- Timeout check
+		if os.clock() - startTime > travelTime then
+			self:_stopStepping(true, 7)
+			self.MoveToComplete:Fire()
+			self.lastPosition = point -- Track last target position
+			self.noPathAttempts = 0 -- Reset attempts only when target reached
+			return
+		end
+
+		-- In range to advance to the next waypoint
+		if (_currentPosition - point).Magnitude <= 5 then
+			self:_stopStepping(false, 20)
+			self.MoveToComplete:Fire()
+			self.lastPosition = point -- Track last target position
+			self.noPathAttempts = 0 -- Reset attempts when advancing to next waypoint
+			return
+		end
+
+		local direction = Vector3.new(nextWayPos.X, _currentPosition.Y, nextWayPos.Z)
+			- _currentPosition
 		local velocity = self.RootPart.AssemblyLinearVelocity.Magnitude
 
 		if velocity < 1.1920928955078125e-07 then
-			self.UnstuckTimestamp = workspace:GetServerTimeNow()
+			debugPrint("stuck!!!")
+			self.lastStuckAt = now -- Reset unstuck timer
 			self:WalkInDirection(-direction, true)
 			return
 		end
 
 		-- In range to advance to the next waypoint
+		-- Or if stuck, attempt to advance anyway
 		if
 			direction.Magnitude
 			<= self.Pathfinder.AgentParameters.WaypointSpacing * 0.8
@@ -271,19 +419,18 @@ function Freshynoid:WalkToPoint(point: Vector3, shouldPathfind: boolean)
 			-- Updated hoisted targets
 			nextWayPos, _nextAction, _nextLabel = self.Pathfinder:GetNextWaypoint()
 			if not nextWayPos then
-				self:_stopStepping(false)
+				self:_stopStepping(false, 9)
 				self.MoveToComplete:Fire()
-
+				self.lastPosition = point -- Track last target position
+				self.noPathAttempts = 0 -- Reset attempts only when target reached
 				return
 			end
+			self.noPathAttempts = 0 -- Reset attempts when advancing to next waypoint
 		end
 
 		-- Head that way
-		local newDirection = Vector3.new(
-			nextWayPos.X,
-			self:GetRootPosition().Y,
-			nextWayPos.Z
-		) - self:GetRootPosition()
+		local newDirection = Vector3.new(nextWayPos.X, _currentPosition.Y, nextWayPos.Z)
+			- _currentPosition
 		self:WalkInDirection(newDirection, true)
 	end)
 end
@@ -304,7 +451,7 @@ function Freshynoid:WalkInDirection(direction: Vector3, keepWalking: boolean?)
 
 	-- Stop moving first
 	if not keepWalking then
-		self:_stopStepping(false)
+		self:_stopStepping(false, 10)
 	end
 
 	-- Walk that way
@@ -319,7 +466,7 @@ end
 -- Cleanup
 function Freshynoid:Destroy()
 	-- Stop moving first
-	self:_stopStepping(true)
+	self:_stopStepping(true, 11)
 
 	if self._walkStepped and self._walkStepped.Connected then
 		self._walkStepped:Disconnect()
@@ -356,7 +503,8 @@ function Freshynoid:_bindAnimationSpeed()
 end
 
 -- Disconnects the stepped event
-function Freshynoid:_stopStepping(resetState: boolean)
+function Freshynoid:_stopStepping(resetState: boolean, step)
+	debugPrint("stopping at step:", step)
 	if self._stepped and self._stepped.Connected then
 		self._stepped:Disconnect()
 		self._stepped = nil
@@ -369,7 +517,7 @@ function Freshynoid:_stopStepping(resetState: boolean)
 end
 
 -- Adds default values to config table
-function Freshynoid:_getConfiguration(configuration: FreshynoidConfiguration?)
+function Freshynoid:_formatConfig(configuration: FreshynoidConfiguration?)
 	if not configuration then
 		return table.clone(DefaultConfiguration)
 	end
@@ -384,6 +532,14 @@ function Freshynoid:_getConfiguration(configuration: FreshynoidConfiguration?)
 			newConfig[key] = value
 		end
 	end
+
+	newConfig.BackupGraph = configuration.BackupGraph
+	newConfig.WalkCycleSpeed = configuration.WalkCycleSpeed
+
+	newConfig.AgentRadius = math.max(
+		newConfig.AgentParameters.AgentRadius or 0,
+		MIN_AGENT_RADIUS
+	) * AGENT_RADIUS_PADDING
 
 	return newConfig
 end
