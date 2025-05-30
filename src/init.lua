@@ -12,14 +12,20 @@ local Workspace = game:GetService("Workspace")
 local Pathfinder = require(script.Pathfinder)
 local Signal = require(script.Signal)
 
-local DEBUG_PATH = false
+local DEBUG = false
 local UNSTUCK_TIME = 0.9
 local MIN_AGENT_RADIUS = 2
 local AGENT_RADIUS_PADDING = 1 -- Padding to prevent getting stuck on walls
 
 local function debugPrint(...)
-	if DEBUG_PATH then
+	if DEBUG then
 		print(...)
+	end
+end
+
+local function debugWarn(...)
+	if DEBUG then
+		warn(...)
 	end
 end
 
@@ -65,7 +71,7 @@ function Freshynoid.new(character: Model, configuration: FreshynoidConfiguration
 
 	-- Events
 	self.StateChanged = Signal.new()
-	self.MoveToComplete = Signal.new()
+	self.MoveToComplete = Signal.new() -- :: Signal.Signal<boolean>
 	self.Stuck = Signal.new()
 
 	-- Refs
@@ -177,6 +183,8 @@ function Freshynoid:WalkToPoint(
 		self.lastNoPathAt = 0
 	end
 
+	debugWarn("moved 1", shouldPathfind, automatedCall)
+
 	-- Track the last WalkToPoint call to prevent concurrent calls
 	self._walkToPointToken = (self._walkToPointToken or 0) + 1
 	local walkToken = self._walkToPointToken
@@ -228,6 +236,8 @@ function Freshynoid:WalkToPoint(
 				self.Manager.MovingDirection = Vector3.zero
 				debugPrint("estimated travel time exceeded, continuing")
 
+				debugWarn("moved 2")
+
 				-- Attempt to walk to the point again with pathfinding
 				return self:WalkToPoint(point, true, true)
 			end
@@ -242,13 +252,9 @@ function Freshynoid:WalkToPoint(
 					self.noPathAttempts = 0 -- Reset attempts only when target reached
 					return
 				end
-
-				-- Otherwise, continue moving towards the point
-				self:WalkInDirection(newDirection, true)
-			else
-				-- Continue moving towards the point
-				self:WalkInDirection(newDirection, true)
 			end
+
+			self:WalkInDirection(newDirection, true)
 
 			return
 		end)
@@ -298,7 +304,7 @@ function Freshynoid:WalkToPoint(
 
 		debugPrint("no path attempts 2:", self.noPathAttempts)
 
-		debugPrint("walking backwards 000")
+		debugWarn("walking backwards 000")
 		self:WalkInDirection(self.Manager.MovingDirection * -1, false)
 
 		self._thread = task.delay(0.2, function()
@@ -312,29 +318,29 @@ function Freshynoid:WalkToPoint(
 	end
 
 	-- For debugging path
-	if DEBUG_PATH == true then
-		for _, part in testParts do
-			part:Destroy()
+	if DEBUG == true then
+		for _, testPart in testParts do
+			testPart:Destroy()
 		end
 
 		for _, waypoint: PathWaypoint in self.Pathfinder.Waypoints do
-			local part = Instance.new("Part")
-			part.Anchored = true
-			part.CanCollide = false
-			part.CanQuery = false
-			part.CanTouch = false
-			part.Shape = Enum.PartType.Ball
-			part.Size = Vector3.new(1, 1, 1) * 0.4
-			part.Color = Color3.new(1, 0, 0)
-			part.CFrame = CFrame.new(waypoint.Position)
+			local testPart = Instance.new("Part")
+			testPart.Anchored = true
+			testPart.CanCollide = false
+			testPart.CanQuery = false
+			testPart.CanTouch = false
+			testPart.Shape = Enum.PartType.Ball
+			testPart.Size = Vector3.new(1, 1, 1) * 0.4
+			testPart.Color = Color3.new(1, 0, 0)
+			testPart.CFrame = CFrame.new(waypoint.Position)
 
 			local pathModifier = Instance.new("PathfindingModifier")
 			pathModifier.PassThrough = true
-			pathModifier.Parent = part
+			pathModifier.Parent = testPart
 
-			part.Parent = Workspace
+			testPart.Parent = Workspace
 
-			table.insert(testParts, part)
+			table.insert(testParts, testPart)
 		end
 	end
 
@@ -384,7 +390,7 @@ function Freshynoid:WalkToPoint(
 		-- Timeout check
 		if os.clock() - startTime > travelTime then
 			self:_stopStepping(true, 7)
-			self.MoveToComplete:Fire()
+			self.MoveToComplete:Fire(true)
 			self.lastPosition = point -- Track last target position
 			self.noPathAttempts = 0 -- Reset attempts only when target reached
 			return
@@ -404,7 +410,7 @@ function Freshynoid:WalkToPoint(
 		local velocity = self.RootPart.AssemblyLinearVelocity.Magnitude
 
 		if velocity < 1.1920928955078125e-07 then
-			debugPrint("stuck!!!")
+			debugWarn("stuck!!!")
 			self.lastStuckAt = now -- Reset unstuck timer
 			self:WalkInDirection(-direction, true)
 			return
@@ -427,6 +433,8 @@ function Freshynoid:WalkToPoint(
 			end
 			self.noPathAttempts = 0 -- Reset attempts when advancing to next waypoint
 		end
+
+		debugWarn("moved 3")
 
 		-- Head that way
 		local newDirection = Vector3.new(nextWayPos.X, _currentPosition.Y, nextWayPos.Z)

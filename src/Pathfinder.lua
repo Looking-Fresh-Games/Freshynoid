@@ -134,28 +134,29 @@ function Pathfinder:PathToPoint(startPoint: Vector3, targetPoint: Vector3): bool
 end
 
 function Pathfinder:GetNextWaypoint(): (Vector3?, Enum.PathWaypointAction?, string?)
-	if #self.Waypoints == 0 or self.UsingFallback and #self.FallbackPoints == 0 then
+	if self.UsingFallback then
+		if not self.FallbackPoints or #self.FallbackPoints == 0 then
+			return nil
+		end
+
+		-- Save the first point before removing it
+		local point = self.FallbackPoints[1]
+
+		table.remove(self.FallbackPoints, 1)
+
+		return point.Position, point.Action, point.Label
+	end
+
+	if not self.Waypoints or #self.Waypoints == 0 then
 		return nil
 	end
 
-	-- Increment the path
-	self.CurrentIndex += 1
+	-- Save the first point before removing it
+	local waypoint: PathWaypoint = self.Waypoints[1]
 
-	if self.UsingFallback == true then
-		if self.CurrentIndex > #self.FallbackPoints then
-			return nil
-		end
+	table.remove(self.Waypoints, 1)
 
-		return self.FallbackPoints[self.CurrentIndex].Position
-	else
-		if self.CurrentIndex > #self.Waypoints then
-			return nil
-		end
-
-		local waypoint = self.Waypoints[self.CurrentIndex] :: PathWaypoint
-
-		return waypoint.Position, waypoint.Action, waypoint.Label
-	end
+	return waypoint.Position, waypoint.Action, waypoint.Label
 end
 
 function Pathfinder:Destroy()
