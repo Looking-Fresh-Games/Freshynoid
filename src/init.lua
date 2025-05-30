@@ -364,11 +364,17 @@ function Freshynoid:WalkToPoint(
 	end
 
 	-- Update loop
+	if self._stepped and self._stepped.Connected then
+		self._stepped:Disconnect()
+		self._stepped = nil
+	end
+
 	self._stepped = RunService.Stepped:Connect(function()
 		local _currentPosition = self:GetRootPosition()
 
 		if walkToken ~= self._walkToPointToken then
-			self:_stopStepping(true, 6)
+			-- self:_stopStepping(true, 6)
+			debugWarn("step 6 triggered")
 			return
 		end
 		local now = Workspace:GetServerTimeNow()
