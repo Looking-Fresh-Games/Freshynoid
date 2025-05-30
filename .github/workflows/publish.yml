@@ -1,0 +1,37 @@
+name: Release module packages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'wally.toml'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install aftman dependencies
+        uses: ok-nick/setup-aftman@v0.4.2
+
+      - name: Publish all changes modules to wally
+        shell: bash
+        env:
+          WALLY_TOKEN: ${{ secrets.WALLY_TOKEN }}
+        run: |
+          mkdir -p ~/.wally
+          printf "[tokens]\n\"https://api.wally.run/\" = \"%s\"" "$WALLY_TOKEN" >> ~/.wally/auth.toml
+          wally publish

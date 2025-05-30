@@ -2,20 +2,31 @@
 -- module OctreeRegionUtils
 
 local EPSILON = 1E-6
-local SQRT_3_OVER_2 = math.sqrt(3)/2
+local SQRT_3_OVER_2 = math.sqrt(3) / 2
 
 -- See basic algorithm:
 -- luacheck: push ignore
 -- https://github.com/PointCloudLibrary/pcl/blob/29f192af57a3e7bdde6ff490669b211d8148378f/octree/include/pcl/octree/impl/octree_search.hpp#L309
 -- luacheck: pop
-local function GetNeighborsWithinRadius(Region, Radius, PositionX, PositionY, PositionZ, ObjectsFound, NodeDistances2, MaxDepth, ObjectsLength, DistancesLength)
+local function GetNeighborsWithinRadius(
+	Region,
+	Radius,
+	PositionX,
+	PositionY,
+	PositionZ,
+	ObjectsFound,
+	NodeDistances2,
+	MaxDepth,
+	ObjectsLength,
+	DistancesLength
+)
 	if not MaxDepth then
 		error("Missing MaxDepth.")
 	end
 
-	local SearchRadius = Radius + SQRT_3_OVER_2*(Region.Size[1]/2)
-	local SearchRadiusSquared = SearchRadius*SearchRadius + EPSILON
-	local RadiusSquared = Radius*Radius
+	local SearchRadius = Radius + SQRT_3_OVER_2 * (Region.Size[1] / 2)
+	local SearchRadiusSquared = SearchRadius * SearchRadius + EPSILON
+	local RadiusSquared = Radius * Radius
 
 	-- for each child
 	for _, ChildRegion in next, Region.SubRegions do
@@ -27,7 +38,7 @@ local function GetNeighborsWithinRadius(Region, Radius, PositionX, PositionY, Po
 		local OffsetX = PositionX - ChildPositionX
 		local OffsetY = PositionY - ChildPositionY
 		local OffsetZ = PositionZ - ChildPositionZ
-		local Distance2 = OffsetX*OffsetX + OffsetY*OffsetY + OffsetZ*OffsetZ
+		local Distance2 = OffsetX * OffsetX + OffsetY * OffsetY + OffsetZ * OffsetZ
 
 		-- within search radius
 		if Distance2 <= SearchRadiusSquared then
@@ -40,7 +51,9 @@ local function GetNeighborsWithinRadius(Region, Radius, PositionX, PositionY, Po
 					local NodeOffsetX = NodePositionX - PositionX
 					local NodeOffsetY = NodePositionY - PositionY
 					local NodeOffsetZ = NodePositionZ - PositionZ
-					local NodeDistance2 = NodeOffsetX*NodeOffsetX + NodeOffsetY*NodeOffsetY + NodeOffsetZ*NodeOffsetZ
+					local NodeDistance2 = NodeOffsetX * NodeOffsetX
+						+ NodeOffsetY * NodeOffsetY
+						+ NodeOffsetZ * NodeOffsetZ
 
 					if NodeDistance2 <= RadiusSquared then
 						ObjectsLength += 1
