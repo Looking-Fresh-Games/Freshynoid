@@ -57,24 +57,6 @@ jobs:
           # update wally.toml file
           echo "$wallyTOMLContents" > wally.toml
 
-          # read package.json file
-          defaultJSONContents=$(<package.json)
-          targetJSONVersionLine=$(echo "$defaultJSONContents" | grep -F "\"version\": ")
-          goalJSONVersionLine="  \"version\": \"${{ steps.version.outputs.version }}\","
-          defaultJSONContents="${defaultJSONContents/${targetJSONVersionLine}/${goalJSONVersionLine}}"
-
-          # update package.json file
-          echo "$defaultJSONContents" > package.json
-
-          # read README.md file
-          readmeContents=$(<README.md)
-          targetReadmeVersionLine=$(echo "$readmeContents" | grep -F "${{ github.event.repository.name }} = \"")
-          goalReadmeVersionLine="${{ github.event.repository.name }} = \"${{github.repository}}@${{ steps.version.outputs.version }}\""
-          readmeContents="${readmeContents/${targetReadmeVersionLine}/${goalReadmeVersionLine}}"
-
-          # update README.md file
-          echo "$readmeContents" > README.md
-
       - name: Commit files with new version
         id: commit-files
         run: |
