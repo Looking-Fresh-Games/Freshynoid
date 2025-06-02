@@ -1,0 +1,19 @@
+{
+  "name": "freshynoid",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+
+      "Packages": {
+        "$className": "Folder",
+        "$path": "Packages",
+
+        "Freshynoid": {
+          "$path": "src"
+        }
+      }
+	  }
+  }
+}
