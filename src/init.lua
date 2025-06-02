@@ -549,27 +549,6 @@ function Freshynoid.WalkInDirection(
 	end
 end
 
--- Cleanup
-function Freshynoid.Destroy(self: Freshynoid)
-	-- Stop moving first
-	self:_stopStepping(true, 11)
-
-	self.trove:Destroy()
-
-	if self._walkStepped and self._walkStepped.Connected then
-		self._walkStepped:Disconnect()
-		self._walkStepped = nil
-	end
-
-	self._walkToPointToken = nil
-
-	self.FreshyState = "Dead"
-
-	if self.Pathfinder then
-		self.Pathfinder:Destroy()
-	end
-end
-
 -- Updates the walk cycle animation based on the current velocity
 function Freshynoid._bindAnimationSpeed(self: Freshynoid)
 	if not self.Configuration.WalkCycleSpeed then
@@ -578,7 +557,7 @@ function Freshynoid._bindAnimationSpeed(self: Freshynoid)
 
 	-- Helper utility to remove the Y component from velocity
 	local function getHorizontalVelocity(velocity: Vector3): Vector3
-		return Vector3.new(velocity.X, 0, velocity.Y)
+		return Vector3.new(velocity.X, 0, velocity.Z)
 	end
 
 	-- Bind to heartbeat, shouldn't unbind until the class is destroyed
@@ -591,6 +570,7 @@ function Freshynoid._bindAnimationSpeed(self: Freshynoid)
 		local flatVelc = if self.RootPart
 			then getHorizontalVelocity(self.RootPart.AssemblyLinearVelocity).Magnitude
 			else 0
+
 		self.PlayingTrack:AdjustSpeed(flatVelc / self.Configuration.WalkCycleSpeed)
 	end)
 end
@@ -632,6 +612,27 @@ function Freshynoid._makeCharacterRefs(self: Freshynoid)
 		if self.RootPart then
 			self.Manager.FacingDirection = self.RootPart.CFrame.LookVector
 		end
+	end
+end
+
+-- Cleanup
+function Freshynoid.Destroy(self: Freshynoid)
+	-- Stop moving first
+	self:_stopStepping(true, 11)
+
+	self.trove:Destroy()
+
+	if self._walkStepped and self._walkStepped.Connected then
+		self._walkStepped:Disconnect()
+		self._walkStepped = nil
+	end
+
+	self._walkToPointToken = nil
+
+	self.FreshyState = "Dead"
+
+	if self.Pathfinder then
+		self.Pathfinder:Destroy()
 	end
 end
 
