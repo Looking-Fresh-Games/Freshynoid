@@ -12,7 +12,8 @@ local StarterPlayer = game:GetService("StarterPlayer")
 local Workspace = game:GetService("Workspace")
 
 local Pathfinder = require(script.Pathfinder)
-local Signal = require(script.Signal)
+local Signal = require(script.Parent.Signal)
+local Trove = require(script.Parent.Trove)
 
 local DEBUG = false
 local UNSTUCK_TIME = 0.9
@@ -107,7 +108,6 @@ export type Freshynoid = typeof(setmetatable(
 		Configuration: FreshynoidConfiguration,
 		Pathfinder: Pathfinder.Pathfinder,
 		AnimationTracks: { [string]: { AnimationTrack } },
-		_thread: thread?,
 		_walkToPointToken: number?, -- Used to track the last WalkToPoint call to prevent concurrent calls
 		Manager: ControllerManager?,
 		GroundController: GroundController?,
@@ -124,6 +124,7 @@ export type Freshynoid = typeof(setmetatable(
 		-- Connections
 		_stepped: RBXScriptConnection?,
 		_walkStepped: RBXScriptConnection?,
+		trove: Trove.Trove,
 
 		RootAttachment: Attachment?,
 		RootPart: BasePart?,
@@ -151,7 +152,6 @@ function Freshynoid.new(
 			newConfiguration.BackupGraph
 		),
 		AnimationTracks = {},
-		_thread = nil,
 
 		-- State
 		FreshyState = "Paused" :: DefaultStates,
@@ -161,6 +161,8 @@ function Freshynoid.new(
 		lastStuckAt = Workspace:GetServerTimeNow() - UNSTUCK_TIME,
 		noPathAttempts = 0,
 		lastNoPathAt = 0,
+
+		trove = Trove.new(),
 	}, Freshynoid) :: Freshynoid
 
 	-- Setup
@@ -254,6 +256,8 @@ function Freshynoid.WalkToPoint(
 	shouldPathfind: boolean,
 	automatedCall: boolean?
 )
+	self.trove:Clean()
+
 	if not automatedCall then
 		self.noPathAttempts = 0
 		self.lastNoPathAt = 0
@@ -294,7 +298,7 @@ function Freshynoid.WalkToPoint(
 
 	-- Just turn that direction and start moving
 	if shouldPathfind == false then
-		self._stepped = RunService.Heartbeat:Connect(function()
+		self.trove:Add(RunService.Heartbeat:Connect(function()
 			if walkToken ~= self._walkToPointToken then
 				self:_stopStepping(false, 2)
 				return
@@ -311,7 +315,6 @@ function Freshynoid.WalkToPoint(
 			if os.clock() - startTime > travelTime then
 				self.Manager.MovingDirection = Vector3.zero
 				debugPrint("estimated travel time exceeded, continuing")
-
 				debugWarn("moved 2")
 
 				-- Attempt to walk to the point again with pathfinding
@@ -333,16 +336,11 @@ function Freshynoid.WalkToPoint(
 			self:WalkInDirection(newDirection, true)
 
 			return
-		end)
+		end))
 
 		self:WalkInDirection(startDirection, true)
 
 		return
-	end
-
-	if self._thread and coroutine.status(self._thread) == "suspended" then
-		task.cancel(self._thread)
-		self._thread = nil
 	end
 
 	-- Solve the path
@@ -383,12 +381,12 @@ function Freshynoid.WalkToPoint(
 		debugWarn("walking backwards 000")
 		self:WalkInDirection(self.Manager.MovingDirection * -1, false)
 
-		self._thread = task.delay(0.2, function()
+		self.trove:Add(task.delay(0.2, function()
 			if walkToken ~= self._walkToPointToken then
 				return
 			end
 			self:WalkToPoint(point, false, true)
-		end)
+		end))
 
 		return
 	end
@@ -426,12 +424,12 @@ function Freshynoid.WalkToPoint(
 		debugPrint("walking backwards")
 		-- self:WalkInDirection(self.Manager.MovingDirection * -1, false)
 
-		-- self._thread = task.delay(0.2, function()
+		-- self.trove:Add(task.delay(0.2, function()
 		-- 	if walkToken ~= self._walkToPointToken then
 		-- 		return
 		-- 	end
 		-- 	self:WalkToPoint(point, false, true)
-		-- end)
+		-- end))
 		self:_stopStepping(false, 19)
 		self.MoveToComplete:Fire()
 		self.lastPosition = point -- Track last target position
@@ -440,12 +438,7 @@ function Freshynoid.WalkToPoint(
 	end
 
 	-- Update loop
-	if self._stepped and self._stepped.Connected then
-		self._stepped:Disconnect()
-		self._stepped = nil
-	end
-
-	self._stepped = RunService.Stepped:Connect(function()
+	self.trove:Add(RunService.Stepped:Connect(function()
 		local _currentPosition = self:GetRootPosition()
 
 		if walkToken ~= self._walkToPointToken then
@@ -462,10 +455,6 @@ function Freshynoid.WalkToPoint(
 		-- Check to make sure we're still running
 		if self.FreshyState ~= "Running" or not nextWayPos then
 			self:_stopStepping(true, 8)
-			if self._thread and coroutine.status(self._thread) == "suspended" then
-				task.cancel(self._thread)
-				self._thread = nil
-			end
 			return
 		end
 
@@ -525,7 +514,7 @@ function Freshynoid.WalkToPoint(
 		local newDirection = Vector3.new(nextWayPos.X, _currentPosition.Y, nextWayPos.Z)
 			- _currentPosition
 		self:WalkInDirection(newDirection, true)
-	end)
+	end))
 end
 
 -- Given a direction vector, walk the direction it points
@@ -564,6 +553,8 @@ end
 function Freshynoid.Destroy(self: Freshynoid)
 	-- Stop moving first
 	self:_stopStepping(true, 11)
+
+	self.trove:Destroy()
 
 	if self._walkStepped and self._walkStepped.Connected then
 		self._walkStepped:Disconnect()
@@ -607,10 +598,7 @@ end
 -- Disconnects the stepped event
 function Freshynoid._stopStepping(self: Freshynoid, resetState: boolean, step)
 	debugPrint("stopping at step:", step)
-	if self._stepped and self._stepped.Connected then
-		self._stepped:Disconnect()
-		self._stepped = nil
-	end
+	self.trove:Clean()
 
 	if resetState and self.Manager and self.FreshyState == "Running" then
 		self:SetState("Idle")
