@@ -128,6 +128,8 @@ export type Freshynoid = typeof(setmetatable(
 
 		RootAttachment: Attachment?,
 		RootPart: BasePart?,
+
+		destroyed: boolean?, -- Used to track if the Freshynoid object has been destroyed
 	},
 	Freshynoid
 ))
@@ -157,7 +159,7 @@ function Freshynoid.new(
 		FreshyState = "Paused" :: DefaultStates,
 		PlayingTrack = nil :: AnimationTrack?,
 
-		lastPosition = Vector3.zero, -- Last target position
+		lastPosition = Vector3.zero,
 		lastStuckAt = Workspace:GetServerTimeNow() - UNSTUCK_TIME,
 		noPathAttempts = 0,
 		lastNoPathAt = 0,
@@ -617,6 +619,12 @@ end
 
 -- Cleanup
 function Freshynoid.Destroy(self: Freshynoid)
+	if self.destroyed then
+		return
+	end
+
+	self.destroyed = true
+
 	-- Stop moving first
 	self:_stopStepping(true, 11)
 
