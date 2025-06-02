@@ -4,7 +4,8 @@
 
     Description: Path finding object.
 ]]
---
+
+--!strict
 
 --Constants
 local RETRY_DELAY = 0.075 -- Seconds between retrying a ComputeAsync()
@@ -28,29 +29,77 @@ local RunService = game:GetService("RunService")
 local Dijkstra = require(script.Parent.Dijkstra)
 local SmallOctree = require(script.Parent.SmallOctree)
 
+local function getAgentParams(agentParams: AgentParameters): AgentParameters
+	local defaultAgentParameters = {
+		AgentRadius = 2,
+		AgentHeight = 5,
+		AgentCanJump = false,
+		AgentCanClimb = false,
+		WaypointSpacing = 4,
+		Costs = nil,
+	}
+
+	for key, value in defaultAgentParameters do
+		if agentParams[key] == nil then
+			agentParams[key] = value
+		end
+	end
+
+	return agentParams
+end
+
 -- Class
 local Pathfinder = {}
 Pathfinder.__index = Pathfinder
 
-function Pathfinder.new(agentParameters: AgentParameters, backupGraph: any?)
-	local self = setmetatable({}, Pathfinder)
+export type FallbackPoint = {
+	Position: Vector3,
+	Action: Enum.PathWaypointAction?,
+	Label: string?,
+}
 
-	-- Refs
-	self.AgentParameters = self:_getAgentParams(agentParameters)
-	self.Path = PathfindingService:CreatePath(agentParameters)
-	self.BackupGraph = backupGraph
-	self.BackupOctree = SmallOctree.new()
+export type Pathfinder = typeof(setmetatable(
+	{} :: {
+		AgentParameters: AgentParameters,
+		Path: Path,
+		BackupGraph: any?,
+		BackupOctree: any,
 
-	-- State
-	self.Waypoints = {} :: { PathWaypoint }
-	self.CurrentIndex = 1
-	self.LastTarget = Vector3.zero
-	self.UsingFallback = false
+		Waypoints: { PathWaypoint },
+		CurrentIndex: number,
+		LastTarget: Vector3,
+		UsingFallback: boolean,
+
+		FallbackPoints: { FallbackPoint }?,
+
+		_blocked: RBXScriptConnection?,
+	},
+	Pathfinder
+))
+
+function Pathfinder.new(agentParameters: AgentParameters, backupGraph: any?): Pathfinder
+	local self = setmetatable({
+		-- Refs
+		AgentParameters = getAgentParams(agentParameters),
+		Path = PathfindingService:CreatePath(agentParameters),
+		BackupGraph = backupGraph,
+		BackupOctree = SmallOctree.new(),
+
+		-- State
+		Waypoints = {},
+		CurrentIndex = 1,
+		LastTarget = Vector3.zero,
+		UsingFallback = false,
+	}, Pathfinder) :: Pathfinder
 
 	return self
 end
 
-function Pathfinder:PathToPoint(startPoint: Vector3, targetPoint: Vector3): boolean
+function Pathfinder.PathToPoint(
+	self: Pathfinder,
+	startPoint: Vector3,
+	targetPoint: Vector3
+): boolean
 	self.LastTarget = targetPoint
 	self.UsingFallback = false
 
@@ -133,7 +182,9 @@ function Pathfinder:PathToPoint(startPoint: Vector3, targetPoint: Vector3): bool
 	return false
 end
 
-function Pathfinder:GetNextWaypoint(): (Vector3?, Enum.PathWaypointAction?, string?)
+function Pathfinder.GetNextWaypoint(
+	self: Pathfinder
+): (Vector3?, Enum.PathWaypointAction?, string?)
 	if self.UsingFallback then
 		if not self.FallbackPoints or #self.FallbackPoints == 0 then
 			return nil
@@ -159,16 +210,13 @@ function Pathfinder:GetNextWaypoint(): (Vector3?, Enum.PathWaypointAction?, stri
 	return waypoint.Position, waypoint.Action, waypoint.Label
 end
 
-function Pathfinder:Destroy()
+function Pathfinder.Destroy(self: Pathfinder)
 	if self._blocked and self._blocked.Connected then
 		self._blocked:Disconnect()
 	end
-
-	self.Path = nil
-	self.Waypoints = nil
 end
 
-function Pathfinder:_bindPathEvents(path: Path)
+function Pathfinder._bindPathEvents(self: Pathfinder, path: Path)
 	if self._blocked and self._blocked.Connected then
 		self._blocked:Disconnect()
 	end
@@ -187,26 +235,7 @@ function Pathfinder:_bindPathEvents(path: Path)
 	end)
 end
 
-function Pathfinder:_getAgentParams(agentParams: AgentParameters)
-	local defaultAgentParameters = {
-		AgentRadius = 2,
-		AgentHeight = 5,
-		AgentCanJump = false,
-		AgentCanClimb = false,
-		WaypointSpacing = 4,
-		Costs = nil,
-	}
-
-	for key, value in defaultAgentParameters do
-		if agentParams[key] == nil then
-			agentParams[key] = value
-		end
-	end
-
-	return agentParams
-end
-
-function Pathfinder:_getNearestNodeFromTree(point, radius)
+function Pathfinder._getNearestNodeFromTree(self: Pathfinder, point, radius)
 	local lowestMagnitude, nearestNode = math.huge, nil
 
 	local foundNodes = self.BackupOctree:RadiusSearch(point, radius)
