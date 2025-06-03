@@ -480,16 +480,16 @@ function Freshynoid.WalkToPoint(
 
 		local direction = Vector3.new(nextWayPos.X, _currentPosition.Y, nextWayPos.Z)
 			- _currentPosition
-		local velocity = if self.RootPart
-			then self.RootPart.AssemblyLinearVelocity.Magnitude
-			else 0
+		-- local velocity = if self.RootPart
+		-- 	then self.RootPart.AssemblyLinearVelocity.Magnitude
+		-- 	else 0
 
-		if velocity < 1.1920928955078125e-07 then
-			debugWarn("stuck!!!")
-			self.lastStuckAt = now -- Reset unstuck timer
-			self:WalkInDirection(-direction, true)
-			return
-		end
+		-- if velocity < 1.1920928955078125e-07 then
+		-- 	debugWarn("stuck!!!")
+		-- 	self.lastStuckAt = now -- Reset unstuck timer
+		-- 	self:WalkInDirection(-direction, true)
+		-- 	return
+		-- end
 
 		-- In range to advance to the next waypoint
 		-- Or if stuck, attempt to advance anyway
